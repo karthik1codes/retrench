@@ -1,0 +1,4 @@
+neatlogs
+openrouter
+python-dotenv>=1.0.0
+# control agent only needs stdlib urllib; dotenv optional for local env

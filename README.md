@@ -175,22 +175,36 @@ Examples for the hackathon demo:
 
 Stack suggestions: LangGraph / CrewAI / OpenAI Agents SDK — anything neatlogs can wrap.
 
-### B. Retrench control agents (the product)
+### B. Retrench autonomous control agent (the product brain)
 
-| Agent | Responsibility | Tools / backends |
+Retrench is a **dashboard + long-running control agent**. The UI shows keep / fix / kill; the control agent **runs the loop without waiting for a human to open the page**.
+
+**Implemented loop** (`POST /api/agent/tick` + `demo/agents/retrench_control_agent.py`):
+
+1. **Watch** — pull neatlogs traces for Features (e.g. `checkout_agent` ERROR spike / success cliff)  
+2. **Investigate** — Runtime (neatlogs) + Change (Entire) + Money (cfo.ai formulas / Ari when token set)  
+3. **Decide** — keep / fix / kill on the unit-economics cut line  
+4. **Act** — write a coding-agent fix brief under `web/.retrench/briefs/`, or mark the Feature **paused**  
+5. **Watchdog** — re-check neatlogs until success rate clears the target (≥ 80%)  
+
+| Role inside the loop | Responsibility | Backends |
 | --- | --- | --- |
-| **Portfolio Agent** | Rank Features by Net Margin; flag regressions | neatlogs rollups, cfo.ai inspect |
-| **Investigate Agent** | Build three-chapter brief: Runtime → Change → Money | neatlogs MCP/API, Entire checkpoints, cfo.ai |
-| **Fix Brief Agent** | Shrink incident to coding-agent-ready patch brief | neatlogs Investigate |
-| **Scenario Agent** | Ask Ari: fix vs pause vs kill; show $ delta | cfo.ai MCP (`inspect_*`, `edit_scenarios`) |
-| **Watchdog Agent** | After resolve, confirm margin + failure class recovered | neatlogs detections + cfo.ai metrics |
+| Portfolio / Watch | Rank Features; flag cliffs | neatlogs Public API |
+| Investigate | Three-chapter brief | neatlogs + Entire + cfo.ai |
+| Fix Brief | Markdown brief for coding agents | local `.retrench/briefs/` |
+| Scenario | $ delta keep vs fix vs kill | cfo.ai / deterministic formulas |
+| Watchdog | Post-fix verification | neatlogs traces |
+
+**UI:** [/agent](./web) — run a tick, see decisions, open Watchdog.  
+**EC2:** systemd `retrench-agent.service` (see [infra/AWS.md](./infra/AWS.md)).  
+**Lambda:** EventBridge every 15m → `POST /api/agent/tick`.
 
 ### C. Coding agents (execution path)
 
 Used to *implement* fixes, tracked by Entire:
 
 - **Cursor** / **Claude Code** / **Codex**
-- Flow: Fix Brief Agent → coding agent applies patch → Entire checkpoints session↔commit → Watchdog verifies in neatlogs + Ari
+- Flow: control agent Fix brief → coding agent applies patch → Entire checkpoints session↔commit → Watchdog verifies in neatlogs + Ari
 
 ### D. Optional security detector (v1.1)
 
@@ -257,6 +271,15 @@ Finance-friendly:
 - Assumptions with lineage (AOV, margin %, cost per failure)  
 - Scenario compare: Keep broken / Fix / Pause  
 - Approve budget or autonomy caps  
+
+### Screen 5 — Autonomous control agent
+
+- Run / view ticks (watch → decide → act)  
+- Cliff badges, paused flags, fix-brief paths  
+- Watchdog pass / wait against live neatlogs  
+- Same surface whether the loop runs locally or on the hackathon EC2  
+
+
 
 ### Daily habit
 
@@ -340,13 +363,16 @@ Coding agent removes retries on `create_checkout`.
 ### Hackathon deploy shape (AWS)
 
 ```text
-Internet → ALB → EC2 (API + web UI)
+Internet → ALB → EC2 (Next.js UI + autonomous control agent)
                  │
-                 ├─ Lambda (scheduled rollup / watchdog)
-                 └─ outbound HTTPS → neatlogs, Entire, cfo.ai MCP/APIs
+                 ├─ systemd: retrench.service (:3000)
+                 ├─ systemd: retrench-agent.service (tick loop)
+                 ├─ Lambda (EventBridge 15m → /api/agent/tick)
+                 └─ outbound HTTPS → neatlogs, Entire, cfo.ai, OpenRouter
 ```
 
-Use the supplied **Hackathon_VPC** only. Do **not** create a VPC.
+Use the supplied **Hackathon_VPC** only. Do **not** create a VPC.  
+**One EC2** runs the product **and** is where you rehearse/test agents (no second “training” fleet — GPU training is out of scope).
 
 ---
 
@@ -374,20 +400,20 @@ Use the supplied **Hackathon_VPC** only. Do **not** create a VPC.
 3. Investigate panel + “Hand to coding agent” deep link / MCP prompt  
 4. Scenario panel (read Ari scenarios; optional write to non-Main scenario)
 
-### Phase 3 — Agents inside Retrench
+### Phase 3 — Autonomous control agent (shipped)
 
-1. Portfolio Agent (rank + alert)  
-2. Investigate Agent (brief)  
-3. Fix Brief Agent  
-4. Watchdog Agent (post-fix verification)
+1. `POST /api/agent/tick` — Watch → Investigate → Decide → Act → Watchdog  
+2. `demo/agents/retrench_control_agent.py` — long-running loop against the API  
+3. `/agent` UI — ticks, cliffs, briefs, Watchdog  
+4. EC2 systemd + Lambda schedule (see `infra/`)
 
 ### Phase 4 — Demo script (hackathon)
 
-1. Show healthy Checkout Recovery card.  
-2. Apply bad change via coding agent (remove retries) → Entire checkpoint.  
-3. Simulate / replay failing runs into neatlogs.  
-4. Portfolio turns red; Investigate shows all three chapters.  
-5. Fix via coding agent; Watchdog + Ari show recovery.  
+1. Run `checkout_agent.py` → traces in neatlogs.  
+2. Open Portfolio / Investigate (live Runtime).  
+3. Run control agent tick (UI or EC2) → cliff → **Fix** brief written.  
+4. Coding agent applies brief; Entire checkpoint.  
+5. Watchdog passes on neatlogs success rate.  
 
 ### Suggested stack
 
@@ -438,14 +464,20 @@ Follow these constraints exactly.
    - Do not add extra LBs.
 
 4. **Lambda**
-   - Scheduled rollup / Watchdog (EventBridge → Lambda).  
-   - Small memory (128–256 MB), short timeout.  
-   - No VPC attachment unless organizers require it (avoids ENI cost/complexity). If it must reach private EC2, follow hackathon VPC guidance without creating a new VPC.
+   - EventBridge every 15m → `POST /api/agent/tick` (+ portfolio rollup).  
+   - Small memory (128–256 MB), timeout ~30s.  
+   - No VPC attachment unless organizers require it.
 
-5. **Do not**
+5. **Agent run / test on that same EC2**
+   - `retrench-agent.service` or `python3 demo/agents/retrench_control_agent.py`  
+   - `AGENT_ONCE=1` for a single rehearsal tick  
+   - Do **not** launch a second EC2 for “training” — hackathon = **one instance**
+
+6. **Do not**
    - Create a new VPC, NAT gateway, RDS, ElastiCache, ECS cluster, or other services outside the allowlist.  
    - Leave instances running after the demo.  
-   - Resize by running two EC2s — **terminate** the old one first.
+   - Resize by running two EC2s — **terminate** the old one first.  
+   - Assume GPU / model-training fleets (not allowed / not needed).
 
 ### Cost hygiene ($25)
 
@@ -478,8 +510,10 @@ Follow these constraints exactly.
 GET  /api/features                 # portfolio list + status
 GET  /api/features/:id             # three-chapter detail
 GET  /api/features/:id/investigate # runtime + change + money brief
-POST /api/features/:id/scenarios   # ask Ari for fix/pause/kill compare
-POST /api/features/:id/resolve     # start Watchdog verification
+POST /api/agent/tick               # autonomous Watch→Decide→Act→Watchdog cycle
+GET  /api/agent/state              # control-agent decisions + briefs + ticks
+POST /api/agent/watchdog           # { "featureId": "checkout-recovery" }
+GET  /api/setup                    # integration readiness
 GET  /api/health                   # ALB health check
 ```
 
@@ -500,8 +534,8 @@ The hackathon demo succeeds when judges can see:
 2. A **regression** appears after a coding-agent change (Entire session↔commit).  
 3. **Investigate** shows Runtime (neatlogs) + Change (Entire) + Money (Ari) without hand-waving.  
 4. A **fix brief** is handed to a coding agent and a fix commit is checkpointed.  
-5. **Watchdog** shows failure class cleared and margin recovering.  
-6. AWS deploy respects **us-east-1**, **Hackathon_VPC**, **EC2/Lambda/IAM/ALB only**, **one EC2**, instance/EBS/budget rules.
+5. **Autonomous control agent** ticks (Watch→Decide→Act) and **Watchdog** clears on neatlogs.  
+6. AWS deploy respects **us-east-1**, **Hackathon_VPC**, **EC2/Lambda/IAM/ALB only**, **one EC2**, instance/EBS/budget rules (agent run/test on that EC2).
 
 ---
 
@@ -509,28 +543,41 @@ The hackathon demo succeeds when judges can see:
 
 - Full company-wide Agent Control Plane / SIEM replacement  
 - Creating or managing customer VPCs  
-- Multi-EC2 / Kubernetes / GPU training  
+- Multi-EC2 / Kubernetes / **GPU model training** (control-agent “training” = loop rehearsal on the single EC2)  
 - Replacing neatlogs, Entire, or Ari — Retrench **orchestrates** them  
-- Automatic production deploys without human approval  
+- Automatic production deploys without human approval (Fix briefs are handed to coding agents)  
 
 ---
 
 ## Quick start (local → AWS)
 
+Full execution guide: **[BUILD.md](./BUILD.md)** · AWS: **[infra/AWS.md](./infra/AWS.md)**
+
 ```bash
-# 1) Instrument demo agents with neatlogs (Python example)
-pip install -U neatlogs
-# neatlogs.init(); neatlogs.wrap(OpenAI)
+# 0) Secrets — copy env → web/.env.local (never commit). See .env.example
+#    Map NEATLOGS_PROJECT_API_KEY → NEATLOGS_API_KEY
 
-# 2) Enable Entire in this repo, then commit via your coding agent
-# entire enable --agent cursor   # or claude-code, etc.
+# 1) UI (shadcn/ui) + API
+cd web && npm install && npm run dev
+# open http://localhost:3000  ·  /agent  ·  /setup
 
-# 3) Connect cfo.ai MCP / workspace and create Feature assumptions
+# 2) Production demo agent → neatlogs (OpenRouter)
+pip install -U -r demo/agents/requirements.txt
+python demo/agents/checkout_agent.py
 
-# 4) Run Retrench API + UI locally, then deploy to the single EC2 behind ALB
+# 2b) Autonomous control agent (local long-running loop)
+#     RETRENCH_BASE_URL=http://127.0.0.1:3000 python demo/agents/retrench_control_agent.py
+#     or: curl -X POST http://localhost:3000/api/agent/tick
+
+# 3) Enable Entire in this repo, then commit via your coding agent
+# entire enable --agent cursor
+
+# 4) Connect cfo.ai MCP / workspace and create Feature assumptions
+#    set CFO_AI_ACCESS_TOKEN, then USE_MOCK_DATA=false
+
+# 5) Deploy to the single EC2 behind ALB (us-east-1, Hackathon_VPC)
+#    see infra/AWS.md
 ```
-
-Exact package layout and deploy scripts can live under `apps/` and `infra/` as the implementation proceeds.
 
 ---
 

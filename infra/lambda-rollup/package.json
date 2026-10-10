@@ -1,0 +1,7 @@
+{
+  "name": "retrench-lambda-rollup",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EventBridge-scheduled GET /api/features kick for Retrench"
+}

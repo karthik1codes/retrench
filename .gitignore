@@ -1,0 +1,33 @@
+# secrets — never commit
+env
+.env
+.env.local
+.env.*.local
+web/.env.local
+web/.env*.local
+*.pem
+
+# deps / build
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# os / ide
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# entire / agent local
+.entire/sessions/
+web/.retrench/
+.retrench/
+*.log
