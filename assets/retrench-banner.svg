@@ -1,136 +1,80 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-label="Retrench  keep or kill AI features at the unit-economics line">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#F4EFE6"/>
-      <stop offset="100%" stop-color="#E8E0D2"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#B45309"/>
-      <stop offset="100%" stop-color="#D97706"/>
-    </linearGradient>
-    <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#16A34A"/>
-      <stop offset="55%" stop-color="#CA8A04"/>
-      <stop offset="100%" stop-color="#DC2626"/>
-    </linearGradient>
-    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
-      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#1C1917" flood-opacity="0.12"/>
-    </filter>
-    <clipPath id="windowClip">
-      <rect x="210" y="70" width="780" height="280" rx="14"/>
-    </clipPath>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420">
+  <title>Retrench - Keep or kill AI features at the unit-economics line</title>
 
   <!-- Background -->
-  <rect width="1200" height="420" fill="url(#bg)"/>
+  <rect width="1200" height="420" fill="#F4EFE6"/>
+  <rect x="0" y="0" width="1200" height="420" fill="#E8E0D2" opacity="0.35"/>
 
-  <!-- Animated dashed vertical rails -->
+  <!-- Dashed vertical rails -->
   <g stroke="#C4B8A5" stroke-width="1" stroke-dasharray="4 10" opacity="0.55">
-    <g>
-      <line x1="80" y1="0" x2="80" y2="420"/>
-      <line x1="140" y1="0" x2="140" y2="420"/>
-      <line x1="1060" y1="0" x2="1060" y2="420"/>
-      <line x1="1120" y1="0" x2="1120" y2="420"/>
-      <animateTransform attributeName="transform" type="translate" values="0,0; 0,14; 0,0" dur="4s" repeatCount="indefinite"/>
-    </g>
+    <line x1="80" y1="0" x2="80" y2="420"/>
+    <line x1="140" y1="0" x2="140" y2="420"/>
+    <line x1="1060" y1="0" x2="1060" y2="420"/>
+    <line x1="1120" y1="0" x2="1120" y2="420"/>
   </g>
 
-  <!-- Soft floating orbs -->
-  <circle cx="180" cy="90" r="36" fill="#F59E0B" opacity="0.12">
-    <animate attributeName="cy" values="90;110;90" dur="5s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="1040" cy="320" r="48" fill="#DC2626" opacity="0.08">
-    <animate attributeName="cy" values="320;295;320" dur="6s" repeatCount="indefinite"/>
-  </circle>
+  <!-- Soft orbs -->
+  <circle cx="180" cy="90" r="36" fill="#F59E0B" opacity="0.12"/>
+  <circle cx="1040" cy="320" r="48" fill="#DC2626" opacity="0.08"/>
+
+  <!-- App window shadow -->
+  <rect x="218" y="82" width="780" height="280" rx="14" fill="#1C1917" opacity="0.08"/>
 
   <!-- App window -->
-  <g filter="url(#shadow)">
-    <rect x="210" y="70" width="780" height="280" rx="14" fill="#FFFcf7" stroke="#E7E0D4" stroke-width="1.5"/>
-    <!-- Title bar -->
-    <rect x="210" y="70" width="780" height="44" rx="14" fill="#FAF7F1"/>
-    <rect x="210" y="98" width="780" height="16" fill="#FAF7F1"/>
-    <circle cx="238" cy="92" r="6" fill="#FF5F57"/>
-    <circle cx="258" cy="92" r="6" fill="#FEBC2E"/>
-    <circle cx="278" cy="92" r="6" fill="#28C840"/>
-    <text x="304" y="97" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="15" font-weight="700" fill="#1C1917">Retrench</text>
-    <!-- Mini mark -->
-    <g transform="translate(950,78)">
-      <rect width="24" height="24" rx="6" fill="url(#accent)"/>
-      <path d="M6 16 L12 8 L18 16" fill="none" stroke="#FFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <animate attributeName="opacity" values="1;0.35;1" dur="2.2s" repeatCount="indefinite"/>
-      </path>
-    </g>
-  </g>
+  <rect x="210" y="70" width="780" height="280" rx="14" fill="#FFFCF7" stroke="#E7E0D4" stroke-width="1.5"/>
 
-  <g clip-path="url(#windowClip)">
-    <!-- Headline -->
-    <text x="600" y="175" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="36" font-weight="700" fill="#1C1917">
-      Keep or kill
-      <tspan fill="url(#accent)"> AI features</tspan>
-    </text>
-    <text x="600" y="218" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="22" fill="#57534E">
-      at the
-      <tspan fill="#B45309" font-weight="700"> unit-economics</tspan>
-      line
-    </text>
+  <!-- Title bar -->
+  <path d="M210 84c0-7.7 6.3-14 14-14h752c7.7 0 14 6.3 14 14v30H210V84z" fill="#FAF7F1"/>
+  <rect x="210" y="98" width="780" height="16" fill="#FAF7F1"/>
+  <circle cx="238" cy="92" r="6" fill="#FF5F57"/>
+  <circle cx="258" cy="92" r="6" fill="#FEBC2E"/>
+  <circle cx="278" cy="92" r="6" fill="#28C840"/>
+  <text x="304" y="97" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1C1917">Retrench</text>
 
-    <!-- Animated status chips -->
-    <g transform="translate(330,250)">
-      <rect width="86" height="30" rx="15" fill="#DCFCE7"/>
-      <text x="43" y="20" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="700" fill="#166534">KEEP</text>
-      <animate attributeName="opacity" values="1;0.55;1" dur="2.4s" repeatCount="indefinite"/>
-    </g>
-    <g transform="translate(430,250)">
-      <rect width="86" height="30" rx="15" fill="#FEF3C7"/>
-      <text x="43" y="20" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="700" fill="#92400E">FIX</text>
-      <animate attributeName="opacity" values="0.55;1;0.55" dur="2.4s" repeatCount="indefinite"/>
-    </g>
-    <g transform="translate(530,250)">
-      <rect width="86" height="30" rx="15" fill="#FEE2E2"/>
-      <text x="43" y="20" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="700" fill="#991B1B">KILL</text>
-      <animate attributeName="opacity" values="0.4;1;0.4" dur="2.4s" begin="0.4s" repeatCount="indefinite"/>
-    </g>
+  <!-- Mini mark -->
+  <rect x="950" y="78" width="24" height="24" rx="6" fill="#B45309"/>
+  <path d="M956 94l6-8 6 8" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 
-    <!-- Unit-economics cut line -->
-    <g transform="translate(640,248)">
-      <text x="0" y="12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#78716C">margin</text>
-      <path d="M0 28 C40 10, 80 40, 120 18 C150 4, 180 34, 210 22" fill="none" stroke="url(#lineGrad)" stroke-width="3" stroke-linecap="round" stroke-dasharray="240" stroke-dashoffset="240">
-        <animate attributeName="stroke-dashoffset" values="240;0;0;240" keyTimes="0;0.35;0.75;1" dur="5s" repeatCount="indefinite"/>
-      </path>
-      <!-- Threshold marker -->
-      <line x1="0" y1="28" x2="210" y2="28" stroke="#A8A29E" stroke-width="1" stroke-dasharray="3 4" opacity="0.7"/>
-      <circle r="5" fill="#DC2626">
-        <animateMotion dur="5s" repeatCount="indefinite" keyPoints="0;0.35;0.75;1" keyTimes="0;0.35;0.75;1" calcMode="linear" path="M0 28 C40 10, 80 40, 120 18 C150 4, 180 34, 210 22"/>
-      </circle>
-    </g>
+  <!-- Headline -->
+  <text x="600" y="175" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="36" font-weight="700" fill="#1C1917">Keep or kill <tspan fill="#B45309">AI features</tspan></text>
+  <text x="600" y="218" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#57534E">at the <tspan fill="#B45309" font-weight="700">unit-economics</tspan> line</text>
 
-    <!-- Blinking cursor under headline -->
-    <rect x="718" y="198" width="2" height="18" fill="#B45309">
-      <animate attributeName="opacity" values="1;0;1" dur="1.1s" repeatCount="indefinite"/>
-    </rect>
-  </g>
+  <!-- Status chips -->
+  <rect x="330" y="250" width="86" height="30" rx="15" fill="#DCFCE7"/>
+  <text x="373" y="270" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#166534">KEEP</text>
 
-  <!-- Integration pills under window -->
-  <g font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="600">
-    <g transform="translate(300,372)">
-      <rect width="110" height="28" rx="14" fill="#FFFFFF" stroke="#E7E0D4"/>
-      <text x="55" y="18" text-anchor="middle" fill="#44403C">neatlogs</text>
-      <animate attributeName="opacity" values="0.7;1;0.7" dur="3s" repeatCount="indefinite"/>
-    </g>
-    <g transform="translate(430,372)">
-      <rect width="110" height="28" rx="14" fill="#FFFFFF" stroke="#E7E0D4"/>
-      <text x="55" y="18" text-anchor="middle" fill="#44403C">entire.io</text>
-      <animate attributeName="opacity" values="0.7;1;0.7" dur="3s" begin="0.5s" repeatCount="indefinite"/>
-    </g>
-    <g transform="translate(560,372)">
-      <rect width="110" height="28" rx="14" fill="#FFFFFF" stroke="#E7E0D4"/>
-      <text x="55" y="18" text-anchor="middle" fill="#44403C">cfo.ai</text>
-      <animate attributeName="opacity" values="0.7;1;0.7" dur="3s" begin="1s" repeatCount="indefinite"/>
-    </g>
-    <g transform="translate(690,372)">
-      <rect width="210" height="28" rx="14" fill="#1C1917"/>
-      <text x="105" y="18" text-anchor="middle" fill="#FAFAF9">runtime ’ change ’ money</text>
-      <animate attributeName="opacity" values="0.85;1;0.85" dur="2.5s" repeatCount="indefinite"/>
-    </g>
-  </g>
+  <rect x="430" y="250" width="86" height="30" rx="15" fill="#FEF3C7"/>
+  <text x="473" y="270" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#92400E">FIX</text>
+
+  <rect x="530" y="250" width="86" height="30" rx="15" fill="#FEE2E2"/>
+  <text x="573" y="270" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#991B1B">KILL</text>
+
+  <!-- Margin chart -->
+  <text x="640" y="260" font-family="Consolas, Menlo, monospace" font-size="11" fill="#78716C">margin</text>
+  <line x1="640" y1="276" x2="850" y2="276" stroke="#A8A29E" stroke-width="1" stroke-dasharray="3 4" opacity="0.7"/>
+  <path d="M640 276 C680 258, 720 288, 760 266 C790 252, 820 282, 850 270" fill="none" stroke="#DC2626" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="850" cy="270" r="5" fill="#DC2626"/>
+
+  <!-- Blinking cursor (static fallback; CSS animate below for browsers that allow it) -->
+  <rect x="718" y="198" width="2" height="18" fill="#B45309">
+    <animate attributeName="opacity" values="1;0;1" dur="1.1s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Soft pulse on KEEP chip -->
+  <rect x="330" y="250" width="86" height="30" rx="15" fill="#16A34A" opacity="0">
+    <animate attributeName="opacity" values="0;0.12;0" dur="2.4s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Integration pills -->
+  <rect x="300" y="372" width="110" height="28" rx="14" fill="#FFFFFF" stroke="#E7E0D4"/>
+  <text x="355" y="390" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#44403C">neatlogs</text>
+
+  <rect x="430" y="372" width="110" height="28" rx="14" fill="#FFFFFF" stroke="#E7E0D4"/>
+  <text x="485" y="390" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#44403C">entire.io</text>
+
+  <rect x="560" y="372" width="110" height="28" rx="14" fill="#FFFFFF" stroke="#E7E0D4"/>
+  <text x="615" y="390" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#44403C">cfo.ai</text>
+
+  <rect x="690" y="372" width="210" height="28" rx="14" fill="#1C1917"/>
+  <text x="795" y="390" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#FAFAF9">runtime - change - money</text>
 </svg>

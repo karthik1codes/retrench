@@ -1,12 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="280" height="64" viewBox="0 0 280 64" role="img" aria-label="Retrench">
-  <rect width="280" height="64" rx="12" fill="#FFFcf7"/>
-  <g transform="translate(14,14)">
-    <rect width="36" height="36" rx="10" fill="#B45309">
-      <animate attributeName="opacity" values="1;0.75;1" dur="2s" repeatCount="indefinite"/>
-    </rect>
-    <path d="M10 24 L18 12 L26 24" fill="none" stroke="#FFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <animate attributeName="stroke-dasharray" values="0 40;40 0;40 0" dur="2.4s" repeatCount="indefinite"/>
-    </path>
-  </g>
-  <text x="64" y="42" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="28" font-weight="800" fill="#1C1917">Retrench</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="64" viewBox="0 0 280 64">
+  <title>Retrench</title>
+  <rect width="280" height="64" rx="12" fill="#FFFCF7"/>
+  <rect x="14" y="14" width="36" height="36" rx="10" fill="#B45309"/>
+  <path d="M24 38l8-12 8 12" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="64" y="42" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="28" font-weight="800" fill="#1C1917">Retrench</text>
 </svg>

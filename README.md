@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="assets/retrench-logo.svg" alt="Retrench" height="56"/>
+  <img src="./assets/retrench-logo.svg" alt="Retrench" height="56"/>
 </p>
 
 <p align="center">
-  <img src="assets/retrench-banner.svg" alt="Retrench — Keep or kill AI features at the unit-economics line" width="100%"/>
+  <img src="./assets/retrench-banner.svg" alt="Retrench - Keep or kill AI features at the unit-economics line" width="100%"/>
 </p>
 
 <p align="center">
