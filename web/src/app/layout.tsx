@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -31,8 +32,10 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-[100svh] antialiased">
-        {children}
-        <Toaster richColors position="top-center" closeButton />
+        <Providers>
+          {children}
+          <Toaster richColors position="top-center" closeButton />
+        </Providers>
       </body>
     </html>
   );

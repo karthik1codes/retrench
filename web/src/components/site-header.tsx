@@ -2,20 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { AuthButton } from "@/components/auth-button";
 import { ButtonLink } from "@/components/ui/button-link";
-import { ConnectMailDialog } from "@/components/ConnectMailDialog";
+import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/scout", label: "Scout" },
   { href: "/watchlist", label: "Watchlist" },
 ];
 
-export function SiteHeader({
-  showMail = true,
-}: {
-  showMail?: boolean;
-}) {
+export function SiteHeader() {
   const pathname = usePathname();
 
   return (
@@ -50,7 +46,7 @@ export function SiteHeader({
           </nav>
         </div>
         <div className="flex items-center gap-2">
-          {showMail ? <ConnectMailDialog /> : null}
+          <AuthButton />
           <ButtonLink href="/scout" size="sm" className="hidden sm:inline-flex">
             New scout
           </ButtonLink>

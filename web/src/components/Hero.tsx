@@ -59,9 +59,9 @@ export function Hero() {
           <p className="hero-brand font-[family-name:var(--font-display)] text-[13px] font-bold tracking-[0.2em] text-primary">
             SIGNAL SCOUT
           </p>
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <ButtonLink href="/watchlist" variant="ghost" size="sm">
-              Watchlist
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <ButtonLink href="/login" variant="ghost" size="sm">
+              Sign in
             </ButtonLink>
             <ButtonLink href="/scout" size="sm">
               Scout

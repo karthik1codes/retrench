@@ -3,8 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
-import { ConnectMailDialog } from "@/components/ConnectMailDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +26,6 @@ import {
   mailtoUrl,
   outlookComposeUrl,
 } from "@/lib/mail-compose";
-import { loadMailSession, type MailSession } from "@/lib/mail-session";
 import { cn } from "@/lib/utils";
 
 function parseDraft(body: string | null | undefined) {
@@ -50,9 +49,8 @@ export function ScoutStudio() {
   const [status, setStatus] = useState("");
   const [items, setItems] = useState<DraftRow[]>([]);
   const [selected, setSelected] = useState<DraftRow | null>(null);
+  const { data: session } = useSession();
   const [to, setTo] = useState("");
-  const [mail, setMail] = useState<MailSession | null>(null);
-  const [sending, setSending] = useState(false);
   const [finding, setFinding] = useState(false);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
 
@@ -206,57 +204,21 @@ export function ScoutStudio() {
     });
   }
 
-  async function sendViaSmtp() {
-    const session = mail || loadMailSession();
-    if (!session) {
-      toast.error("Connect email for SMTP, or use Open in Gmail");
-      return;
-    }
-    if (!requireRecipient()) return;
-    setSending(true);
-    try {
-      const res = await fetch("/api/mail/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: to.trim(),
-          subject: draftParts.subject,
-          text: draftParts.text,
-          email: session.email,
-          from: session.email,
-          appPassword: session.appPassword,
-          provider: session.provider,
-          smtpHost: session.smtpHost,
-          smtpPort: session.smtpPort,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Send failed");
-      toast.success("Sent via SMTP");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Send failed");
-    } finally {
-      setSending(false);
-    }
-  }
-
   return (
-    <AppShell showMail={false}>
+    <AppShell>
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 md:py-12">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="max-w-xl">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              Company scout
-            </p>
-            <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold tracking-tight md:text-4xl">
-              Find the signal. Draft. You send.
-            </h1>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground md:text-base">
-              Trigger EC2 for any SaaS company, pull an evidence-backed draft,
-              resolve a contact with CrustData, then open your mail.
-            </p>
-          </div>
-          <ConnectMailDialog onChange={setMail} />
+        <div className="mb-8 max-w-xl">
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+            Company scout
+          </p>
+          <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold tracking-tight md:text-4xl">
+            Find the signal. Draft. You send.
+          </h1>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground md:text-base">
+            Trigger EC2 for any SaaS company, pull an evidence-backed draft,
+            resolve a contact with CrustData, then open Gmail as{" "}
+            {session?.user?.email || "your signed-in account"}.
+          </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
@@ -481,17 +443,10 @@ export function ScoutStudio() {
                         Mail app
                       </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={sending}
-                      onClick={() => void sendViaSmtp()}
-                    >
-                      {sending ? "Sending…" : "SMTP (advanced)"}
-                    </Button>
                     <p className="text-xs text-muted-foreground">
-                      Find contact uses CrustData. Open in Gmail uses your
-                      account — Scout never auto-sends.
+                      Signed in as {session?.user?.email || "…"}. Find contact
+                      uses CrustData. Open in Gmail uses your Google session —
+                      Scout never auto-sends.
                     </p>
                   </TabsContent>
                 </Tabs>
