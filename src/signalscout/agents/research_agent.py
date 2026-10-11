@@ -14,9 +14,14 @@ class ResearchAgent:
 
     def run(self) -> list[str]:
         qualified: list[str] = []
+        processed = 0
+        budget = max(0, int(self.cfg.max_signals_per_cycle))
         for sig in self.graph.unfinished_signals():
+            if budget and processed >= budget:
+                break
             if sig["state"] != "detected":
                 continue
+            processed += 1
             severity = int(sig.get("severity") or 0)
             implication = llm_complete(
                 system=(

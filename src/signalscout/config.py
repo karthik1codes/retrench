@@ -49,6 +49,8 @@ class SegmentConfig(BaseModel):
     credit_budget_per_cycle: float = 50
     cadence_hours: int = 6
     limit_companies: int = 25
+    # Cap Research/Draft LLM work so one cycle finishes in minutes
+    max_signals_per_cycle: int = 5
     region: str = "US"
 
 

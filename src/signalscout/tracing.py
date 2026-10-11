@@ -41,7 +41,8 @@ def neatlogs_session(workflow: str = "signal-scout") -> Iterator[Any]:
         try:
             neatlogs.flush()
             neatlogs.shutdown()
-        except Exception:
+        except BaseException:
+            # Ctrl+C during flush/shutdown should not dump OTEL stacks
             pass
 
 

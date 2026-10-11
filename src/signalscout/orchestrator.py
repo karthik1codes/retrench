@@ -57,11 +57,11 @@ def run_cycle(
                 result["dry_run"] = True
                 result["replayed"] = len(unfinished)
                 ResearchAgent(graph, cfg).run()
-                result["drafts"] = DraftAgent(graph).run()
+                result["drafts"] = DraftAgent(graph, cfg).run()
             else:
-                # Resume unfinished first
+                # Resume unfinished first (capped by max_signals_per_cycle)
                 ResearchAgent(graph, cfg).run()
-                DraftAgent(graph).run()
+                DraftAgent(graph, cfg).run()
 
                 signal_agent = SignalAgent(
                     graph,
@@ -73,7 +73,7 @@ def run_cycle(
                 created = signal_agent.run(run_id, segment_id)
                 result["created_signals"] = created
                 ResearchAgent(graph, cfg).run()
-                result["drafts"] = DraftAgent(graph).run()
+                result["drafts"] = DraftAgent(graph, cfg).run()
 
             if write_digest:
                 path = WatchlistAgent(graph).run(credits_spent=ledger.total)

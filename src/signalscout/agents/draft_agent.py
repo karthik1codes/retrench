@@ -5,17 +5,22 @@ from __future__ import annotations
 import re
 import uuid
 
+from signalscout.config import SegmentConfig
 from signalscout.graph import GraphStore
 from signalscout.tracing import llm_complete
 
 
 class DraftAgent:
-    def __init__(self, graph: GraphStore):
+    def __init__(self, graph: GraphStore, cfg: SegmentConfig | None = None):
         self.graph = graph
+        self.cfg = cfg
 
     def run(self) -> list[str]:
         drafted: list[str] = []
+        budget = max(0, int(self.cfg.max_signals_per_cycle)) if self.cfg else 0
         for sig in self.graph.unfinished_signals():
+            if budget and len(drafted) >= budget:
+                break
             if sig["state"] != "qualified":
                 continue
             evidence_hashes = self._evidence_for(sig["id"])

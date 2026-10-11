@@ -59,5 +59,6 @@ triggers:
 archive_below_severity: 70
 credit_budget_per_cycle: 50
 cadence_hours: 6
-limit_companies: 25
+limit_companies: 5
+max_signals_per_cycle: 5
 region: US
