@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Providers } from "@/components/providers";
+import { DirectionProvider } from "@/components/ui/direction";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -18,7 +19,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
@@ -31,11 +32,13 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-[100svh] antialiased">
-        <Providers>
-          {children}
-          <Toaster richColors position="top-center" closeButton />
-        </Providers>
+      <body className="min-h-[100svh] font-sans antialiased">
+        <DirectionProvider direction="ltr">
+          <Providers>
+            {children}
+            <Toaster richColors position="top-center" closeButton />
+          </Providers>
+        </DirectionProvider>
       </body>
     </html>
   );
