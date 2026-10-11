@@ -13,6 +13,7 @@ from signalscout.crustdata import CreditLedger, CrustDataClient
 from signalscout.evidence_store import EvidenceStore
 from signalscout.graph import GraphStore
 from signalscout.secrets import get_secret
+from signalscout.tracing import neatlogs_session
 
 
 def connect_graph():
@@ -49,38 +50,39 @@ def run_cycle(
     result: dict[str, Any] = {"run_id": run_id, "created_signals": [], "drafts": []}
 
     try:
-        if dry_run:
-            # Replay last signals from graph — zero external API
-            unfinished = graph.unfinished_signals()
-            result["dry_run"] = True
-            result["replayed"] = len(unfinished)
-            ResearchAgent(graph, cfg).run()
-            result["drafts"] = DraftAgent(graph).run()
-        else:
-            # Resume unfinished first
-            ResearchAgent(graph, cfg).run()
-            DraftAgent(graph).run()
+        with neatlogs_session():
+            if dry_run:
+                # Replay last signals from graph — zero external API
+                unfinished = graph.unfinished_signals()
+                result["dry_run"] = True
+                result["replayed"] = len(unfinished)
+                ResearchAgent(graph, cfg).run()
+                result["drafts"] = DraftAgent(graph).run()
+            else:
+                # Resume unfinished first
+                ResearchAgent(graph, cfg).run()
+                DraftAgent(graph).run()
 
-            signal_agent = SignalAgent(
-                graph,
-                crust,
-                evidence,
-                cfg,
-                companies_override=companies_override,
-            )
-            created = signal_agent.run(run_id, segment_id)
-            result["created_signals"] = created
-            ResearchAgent(graph, cfg).run()
-            result["drafts"] = DraftAgent(graph).run()
+                signal_agent = SignalAgent(
+                    graph,
+                    crust,
+                    evidence,
+                    cfg,
+                    companies_override=companies_override,
+                )
+                created = signal_agent.run(run_id, segment_id)
+                result["created_signals"] = created
+                ResearchAgent(graph, cfg).run()
+                result["drafts"] = DraftAgent(graph).run()
 
-        if write_digest:
-            path = WatchlistAgent(graph).run(credits_spent=ledger.total)
-            result["digest"] = str(path)
+            if write_digest:
+                path = WatchlistAgent(graph).run(credits_spent=ledger.total)
+                result["digest"] = str(path)
 
-        if ledger.total > cfg.credit_budget_per_cycle:
-            status = "failed"
-            result["error"] = "credit budget exceeded"
-        ledger.write(Path("credits") / f"{run_id}.json")
+            if ledger.total > cfg.credit_budget_per_cycle:
+                status = "failed"
+                result["error"] = "credit budget exceeded"
+            ledger.write(Path("credits") / f"{run_id}.json")
     except Exception as e:  # noqa: BLE001
         status = "failed"
         result["error"] = str(e)
@@ -109,3 +111,4 @@ def run_cycle(
     result["status"] = status
     result["credits_spent"] = ledger.total
     return result
+
