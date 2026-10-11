@@ -18,7 +18,12 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { ConnectMailDialog } from "@/components/ConnectMailDialog";
-import type { DraftRow } from "@/lib/scout-agent";
+import type { ContactRow, DraftRow } from "@/lib/scout-agent";
+import {
+  gmailComposeUrl,
+  mailtoUrl,
+  outlookComposeUrl,
+} from "@/lib/mail-compose";
 import { loadMailSession, type MailSession } from "@/lib/mail-session";
 import { DEMO_SIGNALS } from "@/data/signals";
 
@@ -46,6 +51,8 @@ export function ScoutStudio() {
   const [to, setTo] = useState("");
   const [mail, setMail] = useState<MailSession | null>(null);
   const [sending, setSending] = useState(false);
+  const [finding, setFinding] = useState(false);
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
 
   const draftParts = useMemo(
     () => parseDraft(selected?.draft_body),
@@ -77,7 +84,12 @@ export function ScoutStudio() {
       });
       const data = await res.json();
       if (!res.ok || data.status === "failed") {
-        throw new Error(data.error || "Scout failed");
+        throw new Error(
+          data.error ||
+            (res.status === 502
+              ? "Cannot reach EC2 agent — check SG 8787 or SSH tunnel"
+              : "Scout failed"),
+        );
       }
       const next: DraftRow[] = data.items || [];
       setItems(next);
@@ -100,20 +112,104 @@ export function ScoutStudio() {
     }
   }
 
-  async function sendDraft() {
-    const session = mail || loadMailSession();
-    if (!session) {
-      toast.error("Connect your email first");
+  async function findContacts() {
+    const domain =
+      selected?.domain ||
+      (query.trim().match(/^[\w.-]+\.[a-zA-Z]{2,}$/)
+        ? query.trim().toLowerCase()
+        : "");
+    if (!domain) {
+      toast.error("Scout a company with a domain first");
       return;
     }
+    setFinding(true);
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain, limit: 5 }),
+      });
+      const data = await res.json();
+      if (!res.ok && data.status === "failed" && !data.contacts?.length) {
+        throw new Error(data.error || "Contact lookup failed");
+      }
+      const rows: ContactRow[] = data.contacts || [];
+      setContacts(rows);
+      const firstEmail = rows.find((c) => c.emails?.[0])?.emails?.[0];
+      if (firstEmail) {
+        setTo(firstEmail);
+        toast.success(
+          data.demo
+            ? `Demo contacts for ${domain} (EC2 unreachable)`
+            : `Found ${rows.length} people · ${data.credits_spent ?? 0} credits`,
+        );
+      } else if (rows.length) {
+        toast.message("People found, but no business emails yet");
+      } else {
+        toast.message(data.error || "No matching decision-makers");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Contact lookup failed");
+    } finally {
+      setFinding(false);
+    }
+  }
+
+  function requireRecipient() {
     if (!to.trim()) {
-      toast.error("Add a recipient");
-      return;
+      toast.error("Add a recipient in Send to");
+      return false;
     }
     if (!selected?.draft_body) {
       toast.error("No draft to send");
+      return false;
+    }
+    return true;
+  }
+
+  /** Real user-side tool: opens YOUR Gmail compose with draft filled in. */
+  function openInGmail() {
+    if (!requireRecipient()) return;
+    const url = gmailComposeUrl({
+      to: to.trim(),
+      subject: draftParts.subject,
+      body: draftParts.text,
+    });
+    window.open(url, "_blank", "noopener,noreferrer");
+    toast.success("Opened Gmail compose — hit Send in your account");
+  }
+
+  function openInOutlook() {
+    if (!requireRecipient()) return;
+    window.open(
+      outlookComposeUrl({
+        to: to.trim(),
+        subject: draftParts.subject,
+        body: draftParts.text,
+      }),
+      "_blank",
+      "noopener,noreferrer",
+    );
+    toast.success("Opened Outlook compose");
+  }
+
+  function openMailApp() {
+    if (!requireRecipient()) return;
+    window.location.href = mailtoUrl({
+      to: to.trim(),
+      subject: draftParts.subject,
+      body: draftParts.text,
+    });
+  }
+
+  /** Optional: server SMTP via app password (often fails without Google App Password). */
+  async function sendViaSmtp() {
+    const session = mail || loadMailSession();
+    if (!session) {
+      toast.error("Connect email (app password) first, or use Open in Gmail");
       return;
     }
+    if (!requireRecipient()) return;
     setSending(true);
     try {
       const res = await fetch("/api/mail/send", {
@@ -135,7 +231,7 @@ export function ScoutStudio() {
       if (!res.ok || !data.ok) {
         throw new Error(data.error || "Send failed");
       }
-      toast.success("Draft sent from your mailbox");
+      toast.success("Sent via SMTP from your connected mailbox");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Send failed");
     } finally {
@@ -298,24 +394,99 @@ export function ScoutStudio() {
                   />
                   <Separator />
                   <div className="grid gap-2">
-                    <Label htmlFor="to">Send to</Label>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Label htmlFor="to">Send to</Label>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={finding}
+                        onClick={() => void findContacts()}
+                      >
+                        {finding
+                          ? "Finding via CrustData…"
+                          : "Find contact (CrustData)"}
+                      </Button>
+                    </div>
                     <Input
                       id="to"
                       type="email"
                       value={to}
                       onChange={(e) => setTo(e.target.value)}
-                      placeholder="founder@theircompany.com"
+                      placeholder="Use Find contact or paste an email"
                     />
                   </div>
+                  {contacts.length > 0 ? (
+                    <ul className="space-y-2 rounded-lg border border-border p-3">
+                      {contacts.map((c) => (
+                        <li
+                          key={`${c.name}-${c.title}-${c.emails[0] || c.profile_url}`}
+                          className="text-sm"
+                        >
+                          <div className="font-medium text-foreground">
+                            {c.name}
+                            {c.title ? (
+                              <span className="font-normal text-muted-foreground">
+                                {" "}
+                                · {c.title}
+                              </span>
+                            ) : null}
+                          </div>
+                          {c.emails.length ? (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {c.emails.map((email) => (
+                                <Button
+                                  key={email}
+                                  size="xs"
+                                  variant="secondary"
+                                  onClick={() => {
+                                    setTo(email);
+                                    toast.success(`Selected ${email}`);
+                                  }}
+                                >
+                                  {email}
+                                </Button>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              No business email in CrustData
+                              {c.profile_url ? (
+                                <>
+                                  {" "}
+                                  ·{" "}
+                                  <a
+                                    href={c.profile_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline"
+                                  >
+                                    profile
+                                  </a>
+                                </>
+                              ) : null}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    <strong className="text-foreground">Find contact</strong>{" "}
+                    searches CrustData for VP Sales / CRO / founders at this
+                    domain, then enriches business emails.{" "}
+                    <strong className="text-foreground">Open in Gmail</strong>{" "}
+                    sends from your account — Scout never auto-sends.
+                  </p>
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      disabled={sending}
-                      onClick={() => void sendDraft()}
-                    >
-                      {sending ? "Sending…" : "Send from my email"}
+                    <Button onClick={openInGmail}>Open in Gmail</Button>
+                    <Button variant="secondary" onClick={openInOutlook}>
+                      Open in Outlook
+                    </Button>
+                    <Button variant="outline" onClick={openMailApp}>
+                      Mail app
                     </Button>
                     <Button
-                      variant="secondary"
+                      variant="outline"
                       onClick={() => {
                         void navigator.clipboard.writeText(
                           `${draftParts.subject}\n\n${draftParts.text}`,
@@ -326,12 +497,21 @@ export function ScoutStudio() {
                       Copy
                     </Button>
                   </div>
-                  {!mail ? (
-                    <p className="text-xs text-muted-foreground">
-                      Connect email (top right) before sending. Drafts never
-                      auto-send.
-                    </p>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={sending}
+                      onClick={() => void sendViaSmtp()}
+                    >
+                      {sending ? "SMTP sending…" : "SMTP send (advanced)"}
+                    </Button>
+                    {!mail ? (
+                      <span className="text-xs text-muted-foreground">
+                        Optional: Connect email for SMTP
+                      </span>
+                    ) : null}
+                  </div>
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">

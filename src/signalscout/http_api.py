@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from signalscout.orchestrator import connect_graph
+from signalscout.person_contacts import find_contacts
 from signalscout.scout_one import scout_company
 
 
@@ -125,6 +126,26 @@ class Handler(BaseHTTPRequestHandler):
                     name=name,
                 )
                 code = 200 if result.get("status") == "complete" else 422
+                _json(self, code, result)
+            except Exception as e:  # noqa: BLE001
+                _json(self, 500, {"error": str(e)})
+            return
+
+        if parsed.path == "/contacts":
+            domain = (body.get("domain") or "").strip()
+            if not domain and body.get("company"):
+                domain = str(body.get("company")).strip()
+            titles = body.get("titles")
+            if titles is not None and not isinstance(titles, list):
+                titles = None
+            try:
+                result = find_contacts(
+                    domain=domain,
+                    titles=titles,
+                    limit=int(body.get("limit") or 5),
+                    verified=bool(body.get("verified") or False),
+                )
+                code = 200 if result.get("status") in {"complete", "empty"} else 422
                 _json(self, code, result)
             except Exception as e:  # noqa: BLE001
                 _json(self, 500, {"error": str(e)})

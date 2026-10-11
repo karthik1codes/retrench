@@ -174,3 +174,45 @@ class CrustDataClient:
                 "fields": ["basic_profile", "experience"],
             },
         )
+
+    def person_search(
+        self,
+        filters: dict[str, Any],
+        *,
+        limit: int = 5,
+        fields: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        body: dict[str, Any] = {
+            "filters": filters,
+            "limit": limit,
+            "fields": fields
+            or [
+                "basic_profile.name",
+                "basic_profile.current_title",
+                "social_handles.professional_network_identifier.profile_url",
+            ],
+        }
+        data = self._request("POST", "/person/search", body)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        for key in ("people", "results", "data", "items", "profiles"):
+            val = data.get(key) if isinstance(data, dict) else None
+            if isinstance(val, list):
+                return [x for x in val if isinstance(x, dict)]
+        return []
+
+    def person_contact_enrich(
+        self,
+        profile_urls: list[str],
+        *,
+        verified: bool = False,
+    ) -> Any:
+        return self._request(
+            "POST",
+            "/person/contact/enrich",
+            {
+                "professional_network_profile_urls": profile_urls,
+                "fields": ["contact.business_emails"],
+                "verified": verified,
+            },
+        )

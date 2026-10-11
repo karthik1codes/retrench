@@ -72,12 +72,15 @@ export async function POST(req: Request) {
       accepted: info.accepted,
     });
   } catch (e) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: e instanceof Error ? e.message : "send failed",
-      },
-      { status: 500 },
-    );
+    const raw = e instanceof Error ? e.message : "send failed";
+    let hint = raw;
+    if (/Invalid login|EAUTH|Username and Password not accepted/i.test(raw)) {
+      hint =
+        "Gmail rejected the password. Use a Google App Password (not your normal password), or use “Open in Gmail” instead — that sends from your browser session.";
+    } else if (/connect|ETIMEDOUT|ENOTFOUND|ECONNREFUSED/i.test(raw)) {
+      hint =
+        "Could not reach the mail server. Check network, or use “Open in Gmail” (user-side, no SMTP).";
+    }
+    return NextResponse.json({ ok: false, error: hint }, { status: 500 });
   }
 }
