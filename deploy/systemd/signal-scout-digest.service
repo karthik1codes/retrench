@@ -1,0 +1,12 @@
+[Unit]
+Description=Signal Scout nightly watchlist digest
+After=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/signalscout
+EnvironmentFile=-/opt/signalscout/.env.runtime
+ExecStart=/usr/bin/docker compose -f /opt/signalscout/deploy/docker-compose.yml run --rm --no-deps \
+  -e NEO4J_URI=bolt://neo4j:7687 \
+  agent run --config /app/segment.yaml --dry-run

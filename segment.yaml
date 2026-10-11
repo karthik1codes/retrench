@@ -1,0 +1,46 @@
+# Signal Scout — segment DSL (only human input)
+# Sentence form: "Series A–B fintech SaaS, 20–200 employees, US"
+
+dsl_text: "Series A–B fintech SaaS, 20–200 employees, US"
+
+crustdata_filters:
+  - field: company_type
+    type: "="
+    value: "SaaS"
+  - field: industry
+    type: "in"
+    value: ["Fintech", "Financial Services"]
+  - field: employee_count_range
+    type: "in"
+    value: ["11-50", "51-200"]
+  - field: hq_country
+    type: "="
+    value: "United States"
+  - field: last_funding_round_type
+    type: "in"
+    value: ["Series A", "Series B"]
+
+triggers:
+  funding:
+    enabled: true
+    max_age_days: 14
+    min_severity: 80
+  headcount_surge:
+    enabled: true
+    min_pct_30d: 10
+    gtm_titles_only: true
+    min_severity: 65
+  exec_hire:
+    enabled: true
+    titles: ["VP Sales", "CRO", "Head of Sales", "VP Marketing", "CMO"]
+    max_tenure_days: 45
+    min_severity: 75
+  tech_change:
+    enabled: false
+    min_severity: 60
+
+archive_below_severity: 70
+credit_budget_per_cycle: 50
+cadence_hours: 6
+limit_companies: 25
+region: US

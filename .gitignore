@@ -19,6 +19,15 @@ build/
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
+.pytest_cache/
+
+# signal scout runtime
+credits/*
+!credits/.gitkeep
+business/cost_per_qualified_lead.json
+.env.runtime
+deploy/.env.local
 
 # os / ide
 .DS_Store

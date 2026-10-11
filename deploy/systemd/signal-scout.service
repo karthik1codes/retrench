@@ -1,0 +1,23 @@
+[Unit]
+Description=Signal Scout one cycle
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/signalscout
+Environment=AWS_REGION=us-east-1
+Environment=NEO4J_URI=bolt://localhost:7687
+Environment=NEO4J_USER=neo4j
+Environment=NEO4J_PASSWORD=signalscout
+# Prefer SSM; bootstrap script exports into EnvironmentFile
+EnvironmentFile=-/opt/signalscout/.env.runtime
+ExecStartPre=/usr/bin/docker compose -f /opt/signalscout/deploy/docker-compose.yml up -d neo4j
+ExecStart=/usr/bin/docker compose -f /opt/signalscout/deploy/docker-compose.yml run --rm --no-deps \
+  -e NEO4J_URI=bolt://neo4j:7687 \
+  agent run --config /app/segment.yaml
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

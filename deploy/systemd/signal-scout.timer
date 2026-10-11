@@ -1,0 +1,11 @@
+[Unit]
+Description=Signal Scout every 6 hours
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+Persistent=true
+Unit=signal-scout.service
+
+[Install]
+WantedBy=timers.target

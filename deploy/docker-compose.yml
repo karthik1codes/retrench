@@ -1,0 +1,42 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/signalscout
+    volumes:
+      - neo4j_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p signalscout 'RETURN 1' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  agent:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: signalscout
+      AWS_REGION: us-east-1
+      SSM_PREFIX: /signalscout
+    env_file:
+      - path: ../.env.local
+        required: false
+    volumes:
+      - ../segment.yaml:/app/segment.yaml:ro
+      - ../credits:/app/credits
+      - ../business:/app/business
+      - ../evidence:/app/evidence
+    depends_on:
+      neo4j:
+        condition: service_healthy
+
+volumes:
+  neo4j_data:
