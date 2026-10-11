@@ -1,9 +1,9 @@
 [Unit]
-Description=Signal Scout every 2 hours
+Description=Signal Scout every 1 hour
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=2h
+OnUnitActiveSec=1h
 Persistent=true
 Unit=signal-scout.service
 

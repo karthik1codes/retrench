@@ -1,12 +1,6 @@
-import { SiteFooter } from "@/components/site-footer";
-import { SiteHeader } from "@/components/site-header";
-
+/** Marketing shell — app pages use the dashboard-01 sidebar layout instead. */
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-[100svh] flex-col bg-background">
-      <SiteHeader />
-      <main className="flex-1">{children}</main>
-      <SiteFooter />
-    </div>
+    <div className="flex min-h-[100svh] flex-col bg-background">{children}</div>
   );
 }

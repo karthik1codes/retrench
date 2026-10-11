@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from signalscout.agents.signal_agent import normalize_company
 from signalscout.config import SegmentConfig, load_segment
 from signalscout.crustdata import CrustDataClient
 from signalscout.orchestrator import run_cycle
@@ -91,6 +92,7 @@ def scout_company(
     # First match only; mark as new so Signal Agent emits a draftable trigger
     matched = dict(companies[0])
     matched["is_new_funding"] = True
+    company_ctx = _company_context(companies[0])
 
     result = run_cycle(
         config_path,
@@ -98,14 +100,84 @@ def scout_company(
         write_digest=True,
     )
     result["query"] = {"domain": domain, "name": name}
-    result["matched_company"] = _company_label(companies[0])
+    result["matched_company"] = company_ctx
     result["resolve_credits"] = ledger.total
+
+    # Always attach live signal/draft rows from the graph for this company
+    lookup = (
+        company_ctx.get("domain")
+        or company_ctx.get("name")
+        or domain
+        or name
+        or ""
+    )
+    try:
+        from signalscout.http_api import drafts_for_company
+
+        items = drafts_for_company(str(lookup)) if lookup else []
+    except Exception:  # noqa: BLE001
+        items = []
+    result["items"] = items
+    created = result.get("created_signals") or []
+    drafts = result.get("drafts") or []
+    result["context"] = {
+        "company": company_ctx,
+        "signals_created": len(created),
+        "drafts_created": len(drafts),
+        "signals_in_graph": len(items),
+        "note": _context_note(company_ctx, len(created), len(items)),
+        "signals": [
+            {
+                "type": i.get("type") or i.get("state") or "signal",
+                "summary": i.get("summary"),
+                "severity": i.get("severity"),
+                "state": i.get("state"),
+                "detected_at": i.get("detected_at"),
+                "has_draft": bool(i.get("draft_body")),
+                "confidence": i.get("confidence"),
+            }
+            for i in items
+        ],
+    }
     return result
 
 
-def _company_label(raw: dict[str, Any]) -> dict[str, Any]:
-    basic = raw.get("basic_info") if isinstance(raw.get("basic_info"), dict) else {}
+def _context_note(company: dict[str, Any], created: int, in_graph: int) -> str:
+    bits: list[str] = []
+    if company.get("industry"):
+        bits.append(str(company["industry"]))
+    if company.get("funding_stage"):
+        stage = str(company["funding_stage"])
+        if company.get("last_funding_amount"):
+            stage = f"{stage} ({company['last_funding_amount']})"
+        bits.append(stage)
+    if company.get("headcount"):
+        bits.append(f"{company['headcount']} employees")
+    growth = company.get("headcount_growth_30d_pct")
+    if isinstance(growth, (int, float)) and growth:
+        bits.append(f"{growth}% headcount growth (30d)")
+    if created:
+        bits.append(f"{created} new signal{'s' if created != 1 else ''} this run")
+    elif in_graph:
+        bits.append(f"{in_graph} existing signal{'s' if in_graph != 1 else ''} in graph")
+    else:
+        bits.append("no qualifying signals yet — company profile stored for next cycle")
+    return " · ".join(bits)
+
+
+def _company_context(raw: dict[str, Any]) -> dict[str, Any]:
+    norm = normalize_company(raw)
+    growth = norm.get("headcount_growth_30d_pct")
+    if isinstance(growth, (int, float)):
+        growth = round(float(growth), 1)
     return {
-        "name": basic.get("name") or raw.get("name") or raw.get("company_name"),
-        "domain": basic.get("primary_domain") or raw.get("domain") or raw.get("primary_domain"),
+        "name": norm.get("name"),
+        "domain": norm.get("domain"),
+        "industry": norm.get("industry") or "Uncategorized",
+        "headcount": norm.get("headcount"),
+        "funding_stage": norm.get("funding_stage"),
+        "last_funding_date": norm.get("last_funding_date"),
+        "last_funding_amount": norm.get("last_funding_amount"),
+        "headcount_growth_30d_pct": growth,
+        "country": norm.get("country"),
     }

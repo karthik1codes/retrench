@@ -56,7 +56,7 @@ See [`deploy/`](./deploy):
 | Piece | Role |
 | --- | --- |
 | `docker-compose.yml` | Neo4j + agent image |
-| `systemd/signal-scout.timer` | every 6h oneshot cycle |
+| `systemd/signal-scout.timer` | every 1h oneshot cycle |
 | `ssm_bootstrap.sh` | SecureString → `.env.runtime` |
 | `iam-policy.json` | SSM / S3 / Session Manager |
 

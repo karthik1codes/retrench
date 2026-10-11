@@ -1,56 +1,31 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AuthButton } from "@/components/auth-button";
-import { ButtonLink } from "@/components/ui/button-link";
-import { cn } from "@/lib/utils";
+import { Separator } from "@/components/ui/separator";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
-const NAV = [
-  { href: "/scout", label: "Scout" },
-  { href: "/watchlist", label: "Watchlist" },
-];
+const TITLES: Record<string, string> = {
+  "/dashboard": "Overview",
+  "/scout": "Scout",
+  "/watchlist": "Watchlist",
+};
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const title =
+    TITLES[pathname] ||
+    Object.entries(TITLES).find(([k]) => pathname.startsWith(k))?.[1] ||
+    "Home";
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/80 bg-[color-mix(in_srgb,var(--canvas)_88%,transparent)] backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-        <div className="flex items-center gap-8">
-          <Link
-            href="/"
-            className="font-[family-name:var(--font-display)] text-[13px] font-bold tracking-[0.2em] text-primary"
-          >
-            SIGNAL SCOUT
-          </Link>
-          <nav className="hidden items-center gap-1 sm:flex">
-            {NAV.map((item) => {
-              const active =
-                pathname === item.href || pathname.startsWith(`${item.href}/`);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    active
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                  )}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-        <div className="flex items-center gap-2">
-          <AuthButton />
-          <ButtonLink href="/scout" size="sm" className="hidden sm:inline-flex">
-            New scout
-          </ButtonLink>
-        </div>
+    <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
+      <div className="flex w-full items-center gap-1 px-4 lg:gap-2 lg:px-6">
+        <SidebarTrigger className="-ms-1" />
+        <Separator
+          orientation="vertical"
+          className="mx-2 h-4 data-vertical:self-auto"
+        />
+        <h1 className="text-base font-medium">{title}</h1>
       </div>
     </header>
   );

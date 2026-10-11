@@ -1,0 +1,23 @@
+/** Domains for live scout / contact testing (outside demo fixture companies). */
+export const TEST_COMPANIES = [
+  { name: "Ramp", domain: "ramp.com", note: "fintech · spend" },
+  { name: "Brex", domain: "brex.com", note: "fintech · cards" },
+  { name: "Mercury", domain: "mercury.com", note: "fintech · banking" },
+  { name: "Plaid", domain: "plaid.com", note: "fintech · data" },
+  { name: "Stripe", domain: "stripe.com", note: "payments" },
+  { name: "Notion", domain: "notion.so", note: "productivity SaaS" },
+  { name: "Linear", domain: "linear.app", note: "dev tools" },
+  { name: "Vercel", domain: "vercel.com", note: "infra" },
+  { name: "Retool", domain: "retool.com", note: "internal tools" },
+  { name: "Airtable", domain: "airtable.com", note: "ops SaaS" },
+  { name: "Rippling", domain: "rippling.com", note: "HR / IT" },
+  { name: "Deel", domain: "deel.com", note: "global payroll" },
+  { name: "Gusto", domain: "gusto.com", note: "payroll" },
+  { name: "Navan", domain: "navan.com", note: "travel" },
+  { name: "Bill.com", domain: "bill.com", note: "AP/AR" },
+  { name: "Melio", domain: "meliopayments.com", note: "SMB payments" },
+  { name: "Affirm", domain: "affirm.com", note: "consumer fintech" },
+  { name: "Chime", domain: "chime.com", note: "consumer banking" },
+  { name: "Marqeta", domain: "marqeta.com", note: "card issuing" },
+  { name: "Unit", domain: "unit.co", note: "BaaS" },
+] as const;

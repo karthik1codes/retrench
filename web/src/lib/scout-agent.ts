@@ -6,11 +6,43 @@ const FALLBACK =
   process.env.SCOUT_FALLBACK_DEMO === "1" ||
   process.env.SCOUT_FALLBACK_DEMO === "true";
 
+export type MatchedCompany = {
+  name?: string;
+  domain?: string;
+  industry?: string;
+  headcount?: number | string | null;
+  funding_stage?: string | null;
+  last_funding_date?: string | null;
+  last_funding_amount?: string | null;
+  headcount_growth_30d_pct?: number | null;
+  country?: string | null;
+};
+
+export type ScoutSignalContext = {
+  type?: string;
+  summary?: string;
+  severity?: number;
+  state?: string;
+  detected_at?: string | null;
+  has_draft?: boolean;
+  confidence?: number | null;
+};
+
+export type ScoutContext = {
+  company?: MatchedCompany;
+  signals_created?: number;
+  drafts_created?: number;
+  signals_in_graph?: number;
+  note?: string;
+  signals?: ScoutSignalContext[];
+};
+
 export type ScoutResult = {
   status: string;
   run_id?: string;
   drafts?: string[];
-  matched_company?: { name?: string; domain?: string };
+  matched_company?: MatchedCompany;
+  context?: ScoutContext;
   credits_spent?: number;
   error?: string;
   demo?: boolean;
@@ -20,10 +52,13 @@ export type ScoutResult = {
 export type DraftRow = {
   company: string;
   domain: string;
+  industry?: string;
   signal_id: string;
+  type?: string;
   summary: string;
   severity: number;
   state: string;
+  detected_at?: string | null;
   draft_id?: string | null;
   draft_body?: string | null;
   confidence?: number | null;
@@ -74,9 +109,9 @@ export async function triggerScout(input: {
     const msg =
       e instanceof Error
         ? e.name === "TimeoutError"
-          ? `EC2 agent timed out (${AGENT}). Open SG 8787 or use SSH tunnel.`
-          : `Cannot reach EC2 agent at ${AGENT}: ${e.message}`
-        : `Cannot reach EC2 agent at ${AGENT}`;
+          ? "Scout timed out. Try again shortly."
+          : "Scout service unreachable. Try again shortly."
+        : "Scout service unreachable. Try again shortly.";
     if (FALLBACK) {
       const demo = demoScout(input);
       demo.error = msg;
@@ -189,28 +224,32 @@ export async function findContacts(input: {
     });
     const data = await readJson(res);
     if (!res.ok) {
+      const err = String(data.error || `agent HTTP ${res.status}`);
       if (FALLBACK) {
-        return {
-          ...demoContacts(input.domain),
-          error: String(data.error || `agent HTTP ${res.status}`),
-        };
+        return { ...demoContacts(input.domain), error: err };
       }
       return {
         status: "failed",
         domain: input.domain,
         contacts: [],
-        error: String(data.error || `agent HTTP ${res.status}`),
+        error: err,
       };
     }
-    return data as {
-      status: string;
-      domain?: string;
-      contacts: ContactRow[];
-      credits_spent?: number;
-      error?: string;
+    return {
+      ...(data as {
+        status: string;
+        domain?: string;
+        contacts: ContactRow[];
+        credits_spent?: number;
+        error?: string;
+      }),
+      demo: false,
     };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "contacts failed";
+    const msg =
+      e instanceof Error && e.name === "TimeoutError"
+        ? "Contact lookup timed out"
+        : "Cannot reach scout agent for contacts";
     if (FALLBACK) return { ...demoContacts(input.domain), error: msg };
     return {
       status: "failed",

@@ -54,8 +54,12 @@ def drafts_for_company(query: str) -> list[dict[str, Any]]:
                 WHERE s.state <> 'archived'
                 OPTIONAL MATCH (d:Draft)-[:DRAFTED_FOR]->(s)
                 RETURN c.name AS company, c.domain AS domain,
-                       s.id AS signal_id, s.summary AS summary,
+                       coalesce(c.industry, 'Uncategorized') AS industry,
+                       s.id AS signal_id,
+                       coalesce(s.type, 'signal') AS type,
+                       s.summary AS summary,
                        s.severity AS severity, s.state AS state,
+                       s.detected_at AS detected_at,
                        d.id AS draft_id, d.body AS draft_body,
                        d.confidence AS confidence
                 ORDER BY s.detected_at DESC
@@ -64,6 +68,102 @@ def drafts_for_company(query: str) -> list[dict[str, Any]]:
                 q=q,
             )
             return [dict(r) for r in result]
+    finally:
+        graph.close()
+
+
+def targets_payload(*, limit: int = 200) -> dict[str, Any]:
+    """Companies in Neo4j grouped by industry for the scout target list."""
+    graph = connect_graph()
+    try:
+        with graph._driver.session() as session:
+            last_run = session.run(
+                """
+                MATCH (r:Run)
+                RETURN r.finished_at AS finished_at, r.started_at AS started_at,
+                       r.status AS status, r.id AS id
+                ORDER BY coalesce(r.finished_at, r.started_at) DESC
+                LIMIT 1
+                """
+            ).single()
+            rows = session.run(
+                """
+                MATCH (c:Company)
+                OPTIONAL MATCH (s:Signal)-[:TRIGGERED_BY]->(c)
+                WHERE s.state IS NULL OR s.state <> 'archived'
+                WITH c,
+                     count(s) AS signal_count,
+                     max(s.detected_at) AS last_signal_at
+                RETURN coalesce(c.name, 'Unknown') AS name,
+                       coalesce(c.domain, '') AS domain,
+                       coalesce(nullif(trim(coalesce(c.industry, '')), ''), 'Uncategorized') AS industry,
+                       c.headcount AS headcount,
+                       c.funding_stage AS funding_stage,
+                       c.last_funding_date AS last_funding_date,
+                       c.last_funding_amount AS last_funding_amount,
+                       c.headcount_growth_30d_pct AS headcount_growth_30d_pct,
+                       c.country AS country,
+                       signal_count,
+                       last_signal_at,
+                       c.updated_at AS updated_at
+                ORDER BY coalesce(last_signal_at, c.updated_at) DESC, name ASC
+                LIMIT $limit
+                """,
+                limit=limit,
+            )
+            companies: list[dict[str, Any]] = []
+            for r in rows:
+                growth = r["headcount_growth_30d_pct"]
+                if isinstance(growth, (int, float)):
+                    growth = round(float(growth), 1)
+                companies.append(
+                    {
+                        "name": r["name"],
+                        "domain": r["domain"],
+                        "industry": r["industry"] or "Uncategorized",
+                        "headcount": r["headcount"],
+                        "funding_stage": r["funding_stage"],
+                        "last_funding_date": r["last_funding_date"],
+                        "last_funding_amount": r["last_funding_amount"],
+                        "headcount_growth_30d_pct": growth,
+                        "country": r["country"],
+                        "signal_count": int(r["signal_count"] or 0),
+                        "last_signal_at": r["last_signal_at"],
+                        "updated_at": r["updated_at"],
+                    }
+                )
+
+            by_industry: dict[str, list[dict[str, Any]]] = {}
+            for c in companies:
+                by_industry.setdefault(c["industry"], []).append(c)
+
+            categories = [
+                {
+                    "industry": industry,
+                    "count": len(rows_in),
+                    "companies": rows_in,
+                }
+                for industry, rows_in in sorted(
+                    by_industry.items(),
+                    key=lambda item: (-len(item[1]), item[0].lower()),
+                )
+            ]
+
+            return {
+                "status": "complete",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "refresh_interval_hours": 1,
+                "total": len(companies),
+                "last_run_id": last_run["id"] if last_run else None,
+                "last_run_status": last_run["status"] if last_run else None,
+                "last_run_at": (
+                    (last_run["finished_at"] or last_run["started_at"])
+                    if last_run
+                    else None
+                ),
+                "categories": categories,
+                "companies": companies,
+            }
     finally:
         graph.close()
 
@@ -276,6 +376,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/overview":
             try:
                 _json(self, 200, overview_payload())
+            except Exception as e:  # noqa: BLE001
+                _json(self, 500, {"error": str(e), "status": "failed"})
+            return
+        if parsed.path == "/targets":
+            try:
+                _json(self, 200, targets_payload())
             except Exception as e:  # noqa: BLE001
                 _json(self, 500, {"error": str(e), "status": "failed"})
             return

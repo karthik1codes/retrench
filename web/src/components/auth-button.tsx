@@ -18,7 +18,7 @@ export function AuthButton() {
   if (!data?.user) {
     return (
       <Button size="sm" onClick={() => void signIn("google", { callbackUrl: "/scout" })}>
-        Sign in with Google
+        Sign in
       </Button>
     );
   }
@@ -54,7 +54,7 @@ export function AuthGateHint() {
   if (status === "loading" || data?.user) return null;
   return (
     <div className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-      Sign in with Google to personalize outreach from your account.{" "}
+      Sign in to open drafts from your mailbox.{" "}
       <ButtonLink href="/login" variant="link" size="sm" className="h-auto px-0">
         Sign in
       </ButtonLink>

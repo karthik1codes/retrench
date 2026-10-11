@@ -1,12 +1,18 @@
 [Unit]
 Description=Signal Scout nightly watchlist digest
-After=docker.service
+After=network-online.target
 
 [Service]
 Type=oneshot
-User=ubuntu
+User=ec2-user
 WorkingDirectory=/opt/signalscout
+Environment=NEO4J_URI=bolt://localhost:7687
+Environment=NEO4J_USER=neo4j
+Environment=NEO4J_PASSWORD=signalscout
+Environment=PYTHONPATH=/opt/signalscout/src
 EnvironmentFile=-/opt/signalscout/.env.runtime
-ExecStart=/usr/bin/docker compose -f /opt/signalscout/deploy/docker-compose.yml run --rm --no-deps \
-  -e NEO4J_URI=bolt://neo4j:7687 \
-  agent run --config /app/segment.yaml --dry-run
+EnvironmentFile=-/opt/signalscout/.env.local
+ExecStart=/usr/bin/python3.11 -m signalscout run --config /opt/signalscout/segment.yaml --dry-run
+
+[Install]
+WantedBy=multi-user.target

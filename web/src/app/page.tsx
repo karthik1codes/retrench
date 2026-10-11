@@ -1,5 +1,5 @@
-import { Hero } from "../components/Hero";
+import { GtmLanding } from "@/components/GtmLanding";
 
-export default function Home() {
-  return <Hero />;
+export default function HomePage() {
+  return <GtmLanding />;
 }

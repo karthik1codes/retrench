@@ -18,25 +18,43 @@ import {
 
 export function LoginForm({
   className,
+  googleConfigured = true,
+  authError,
   ...props
-}: React.ComponentProps<"div">) {
+}: React.ComponentProps<"div"> & {
+  googleConfigured?: boolean;
+  authError?: string | null;
+}) {
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Welcome back</CardTitle>
           <CardDescription>
-            Sign in with Google to scout companies and open drafts in your
-            Gmail.
+            Sign in to scout companies and open drafts from your inbox.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
+            {!googleConfigured ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-left text-sm text-destructive">
+                <p className="font-medium">Sign-in is not configured</p>
+                <p className="mt-2 text-destructive/90">
+                  Ask your admin to finish auth setup, then try again.
+                </p>
+              </div>
+            ) : null}
+            {authError ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                Sign-in failed. Please try again.
+              </div>
+            ) : null}
             <Field>
               <Button
                 variant="outline"
                 type="button"
                 className="w-full"
+                disabled={!googleConfigured}
                 onClick={() => void signIn("google", { callbackUrl: "/scout" })}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -49,13 +67,13 @@ export function LoginForm({
               </Button>
             </Field>
             <FieldDescription className="text-center text-xs">
-              No app passwords. You send from your own Google account.
+              You send every message yourself.
             </FieldDescription>
           </FieldGroup>
         </CardContent>
       </Card>
       <FieldDescription className="px-6 text-center">
-        By continuing you agree to send outreach only under your mailbox.
+        Outreach goes out only from your mailbox.
       </FieldDescription>
     </div>
   );
