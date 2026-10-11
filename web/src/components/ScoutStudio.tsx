@@ -818,7 +818,7 @@ export function ScoutStudio() {
                           <Badge variant="secondary">{row.severity}</Badge>
                         </div>
                         <span className="line-clamp-2 text-xs text-muted-foreground">
-                          {row.summary}
+                          {parseSignalText(row.summary).trigger || row.summary}
                         </span>
                         <span className="text-xs font-medium text-primary">
                           {row.draft_body ? "Draft ready" : "No draft"}
