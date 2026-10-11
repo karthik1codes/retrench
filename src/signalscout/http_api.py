@@ -76,12 +76,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
-        if not _auth_ok(self):
-            _json(self, 401, {"error": "unauthorized"})
-            return
         parsed = urlparse(self.path)
         if parsed.path in {"/health", "/"}:
             _json(self, 200, {"ok": True, "service": "signalscout"})
+            return
+        if not _auth_ok(self):
+            _json(self, 401, {"error": "unauthorized"})
             return
         if parsed.path == "/drafts":
             qs = parse_qs(parsed.query)
