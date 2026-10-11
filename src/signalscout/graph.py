@@ -25,7 +25,15 @@ def payload_hash(payload: Any) -> str:
 
 class GraphStore:
     def __init__(self, uri: str, user: str, password: str):
-        self._driver = GraphDatabase.driver(uri, auth=(user, password))
+        # Silence empty-DB "property does not exist" warnings on first run
+        try:
+            self._driver = GraphDatabase.driver(
+                uri,
+                auth=(user, password),
+                notifications_min_severity="OFF",
+            )
+        except TypeError:
+            self._driver = GraphDatabase.driver(uri, auth=(user, password))
 
     def close(self) -> None:
         self._driver.close()

@@ -69,9 +69,9 @@ def llm_complete(
             return resp.choices[0].message.content or ""
 
         if nl:
-            span = nl.span(kind="LLM", name=meta.get("agent", "llm"))
+            # neatlogs valid kinds: AGENT, CHAIN, TOOL, WORKFLOW, ... (not "LLM")
+            span = nl.span(kind="AGENT", name=str(meta.get("agent", "llm")))
             with span:
-                # attach metadata if supported
                 try:
                     span.set_attributes(meta)  # type: ignore[attr-defined]
                 except Exception:
