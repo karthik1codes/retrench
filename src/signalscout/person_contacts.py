@@ -1,4 +1,4 @@
-"""Find decision-maker business emails via CrustData person search + contact enrich."""
+"""Find decision-maker business emails via CrustData person search + /person/enrich."""
 
 from __future__ import annotations
 
@@ -45,32 +45,15 @@ def _name_title(person: dict[str, Any]) -> tuple[str, str]:
     return name, title
 
 
-def _emails_from_contact_payload(data: Any) -> dict[str, list[str]]:
-    """Map profile URL → business emails from /person/contact/enrich response."""
-    out: dict[str, list[str]] = {}
-    rows = data if isinstance(data, list) else []
-    if isinstance(data, dict):
-        for key in ("results", "data", "items"):
-            if isinstance(data.get(key), list):
-                rows = data[key]
-                break
-
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        matched = str(row.get("matched_on") or "")
-        emails: list[str] = []
-        matches = row.get("matches") if isinstance(row.get("matches"), list) else []
-        for m in matches:
-            if not isinstance(m, dict):
-                continue
-            pd = m.get("person_data") if isinstance(m.get("person_data"), dict) else m
-            contact = pd.get("contact") if isinstance(pd.get("contact"), dict) else {}
-            raw_emails = contact.get("business_emails") or pd.get("business_emails") or []
-            emails.extend(_normalize_emails(raw_emails))
-        if matched:
-            out[matched] = list(dict.fromkeys(emails))
-    return out
+def _emails_from_person_data(pd: dict[str, Any]) -> list[str]:
+    contact = pd.get("contact") if isinstance(pd.get("contact"), dict) else {}
+    raw = (
+        contact.get("business_emails")
+        or pd.get("business_emails")
+        or pd.get("emails")
+        or []
+    )
+    return _normalize_emails(raw)
 
 
 def _normalize_emails(raw: Any) -> list[str]:
@@ -92,13 +75,56 @@ def _normalize_emails(raw: Any) -> list[str]:
     return emails
 
 
+def _emails_from_enrich_payload(data: Any) -> dict[str, list[str]]:
+    """Map profile URL → business emails from /person/enrich response."""
+    out: dict[str, list[str]] = {}
+    rows = data if isinstance(data, list) else []
+    if isinstance(data, dict):
+        for key in ("results", "data", "items"):
+            if isinstance(data.get(key), list):
+                rows = data[key]
+                break
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        emails: list[str] = []
+        matches = row.get("matches") if isinstance(row.get("matches"), list) else []
+        person_blobs: list[dict[str, Any]] = []
+        if matches:
+            for m in matches:
+                if not isinstance(m, dict):
+                    continue
+                pd = m.get("person_data") if isinstance(m.get("person_data"), dict) else m
+                person_blobs.append(pd)
+                emails.extend(_emails_from_person_data(pd))
+        else:
+            person_blobs.append(row)
+            emails.extend(_emails_from_person_data(row))
+
+        keys = [
+            str(row.get("matched_on") or ""),
+            str(row.get("professional_network_profile_url") or ""),
+        ]
+        for pd in person_blobs:
+            url = _profile_url(pd)
+            if url:
+                keys.append(url)
+        emails = list(dict.fromkeys(emails))
+        for key in keys:
+            if key:
+                out[key] = emails
+    return out
+
+
 def find_contacts(
     *,
     domain: str,
     titles: list[str] | None = None,
     limit: int = 5,
-    verified: bool = False,
+    verified: bool = False,  # kept for API compat; unused (contact enrich is locked)
 ) -> dict[str, Any]:
+    del verified  # /person/contact/enrich is locked on this token
     domain = (
         domain.strip()
         .lower()
@@ -152,12 +178,15 @@ def find_contacts(
 
         email_map: dict[str, list[str]] = {}
         if urls:
-            enriched = crust.person_contact_enrich(urls[:25], verified=verified)
-            email_map = _emails_from_contact_payload(enriched)
+            # Use unlocked /person/enrich — NOT /person/contact/enrich (403 on self-serve).
+            enriched = crust.person_enrich(
+                urls[:25],
+                fields=["basic_profile.name", "contact.business_emails"],
+            )
+            email_map = _emails_from_enrich_payload(enriched)
 
         for row in meta:
             url = row.get("profile_url") or ""
-            # exact + suffix match (API may normalize URLs)
             emails = email_map.get(url) or []
             if not emails and url:
                 for k, v in email_map.items():
@@ -175,6 +204,7 @@ def find_contacts(
             "domain": domain,
             "contacts": contacts,
             "credits_spent": ledger.total,
+            "enrich_path": "/person/enrich",
         }
     except Exception as e:  # noqa: BLE001
         return {

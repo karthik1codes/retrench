@@ -165,13 +165,19 @@ class CrustDataClient:
             raise ValueError("domains or names required")
         return self._request("POST", "/company/enrich", body)
 
-    def person_enrich(self, profile_urls: list[str]) -> Any:
+    def person_enrich(
+        self,
+        profile_urls: list[str],
+        *,
+        fields: list[str] | None = None,
+    ) -> Any:
         return self._request(
             "POST",
             "/person/enrich",
             {
                 "professional_network_profile_urls": profile_urls,
-                "fields": ["basic_profile", "experience"],
+                "fields": fields
+                or ["basic_profile", "experience"],
             },
         )
 
