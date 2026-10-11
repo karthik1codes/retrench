@@ -12,11 +12,13 @@ class ResearchAgent:
         self.graph = graph
         self.cfg = cfg
 
-    def run(self) -> list[str]:
+    def run(self, *, company_ids: set[str] | None = None) -> list[str]:
         qualified: list[str] = []
         processed = 0
         budget = max(0, int(self.cfg.max_signals_per_cycle))
         for sig in self.graph.unfinished_signals():
+            if company_ids is not None and sig.get("company_id") not in company_ids:
+                continue
             if budget and processed >= budget:
                 break
             if sig["state"] != "detected":

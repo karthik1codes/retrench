@@ -23,38 +23,120 @@ def resolve_companies(
     if not domain and not name:
         raise ValueError("domain or name required")
 
+    found: list[dict[str, Any]] = []
+
     if domain:
         try:
             enriched = crust.company_enrich(domains=[domain])
-            rows = _as_list(enriched)
-            if rows:
-                return rows
+            found = [r for r in _as_list(enriched) if _usable_company(r)]
         except Exception:
-            pass
-        filters: list[dict[str, Any]] = [
-            {"field": "basic_info.primary_domain", "type": "=", "value": domain}
-        ]
-        found = crust.company_search(
-            filters,
-            limit=5,
-            fields=cfg.crustdata_fields or None,
-        )
-        if found:
-            return found
+            found = []
+        if not found:
+            filters: list[dict[str, Any]] = [
+                {"field": "basic_info.primary_domain", "type": "=", "value": domain}
+            ]
+            try:
+                found = [
+                    r
+                    for r in crust.company_search(
+                        filters,
+                        limit=5,
+                        fields=cfg.crustdata_fields or None,
+                    )
+                    if _usable_company(r)
+                ]
+            except Exception:
+                found = []
 
-    query = name or domain
-    return crust.company_search(
-        cfg.crustdata_filters,
-        limit=5,
-        search={"query": query, "mode": "hybrid"},
-        fields=cfg.crustdata_fields or None,
-    )
+    if not found:
+        query = name or domain
+        try:
+            found = [
+                r
+                for r in crust.company_search(
+                    cfg.crustdata_filters,
+                    limit=5,
+                    search={"query": query, "mode": "hybrid"},
+                    fields=cfg.crustdata_fields or None,
+                )
+                if _usable_company(r)
+            ]
+        except Exception:
+            found = []
+
+    # Last resort: still scout the typed domain so the user gets a profile/draft path
+    if not found and domain:
+        found = [
+            {
+                "basic_info": {
+                    "name": _title_from_domain(domain),
+                    "primary_domain": domain,
+                },
+                "domain": domain,
+                "name": _title_from_domain(domain),
+            }
+        ]
+
+    return [_hydrate_query_identity(r, domain=domain, name=name) for r in found]
+
+
+def _title_from_domain(domain: str) -> str:
+    base = domain.split(".")[0].replace("-", " ").replace("_", " ").strip()
+    return base.title() if base else domain
+
+
+def _usable_company(row: dict[str, Any]) -> bool:
+    basic = row.get("basic_info") if isinstance(row.get("basic_info"), dict) else {}
+    name = basic.get("name") or row.get("name") or row.get("company_name")
+    domain = basic.get("primary_domain") or row.get("domain") or row.get("primary_domain")
+    for val in (name, domain):
+        if val is None:
+            continue
+        s = str(val).strip()
+        if s and s.lower() not in {"none", "null", "undefined", "unknown", "n/a"}:
+            return True
+    return False
+
+
+def _hydrate_query_identity(
+    raw: dict[str, Any],
+    *,
+    domain: str | None,
+    name: str | None,
+) -> dict[str, Any]:
+    """Ensure domain/name from the user query survive hollow API payloads."""
+    out = dict(raw)
+    basic = out.get("basic_info") if isinstance(out.get("basic_info"), dict) else {}
+    basic = dict(basic)
+
+    def blank(v: Any) -> bool:
+        if v is None:
+            return True
+        s = str(v).strip()
+        return not s or s.lower() in {"none", "null", "undefined", "unknown", "n/a"}
+
+    if domain and blank(basic.get("primary_domain")) and blank(out.get("domain")):
+        basic["primary_domain"] = domain
+        out["domain"] = domain
+    if name and blank(basic.get("name")) and blank(out.get("name")):
+        basic["name"] = name
+        out["name"] = name
+    if domain and blank(basic.get("name")) and blank(out.get("name")):
+        basic["name"] = _title_from_domain(domain)
+        out["name"] = basic["name"]
+    if basic:
+        out["basic_info"] = basic
+    return out
 
 
 def _as_list(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, list):
         return [x for x in data if isinstance(x, dict)]
     if isinstance(data, dict):
+        # enrich sometimes returns the company object itself
+        if isinstance(data.get("basic_info"), dict) or data.get("domain") or data.get("name"):
+            if _usable_company(data) or data.get("basic_info") is not None:
+                return [data]
         for key in ("companies", "results", "data", "items"):
             val = data.get(key)
             if isinstance(val, list):
@@ -71,7 +153,6 @@ def scout_company(
     name: str | None = None,
 ) -> dict[str, Any]:
     cfg = load_segment(config_path)
-    # Temporary client only for resolve; run_cycle creates its own
     from signalscout.crustdata import CreditLedger
 
     ledger = CreditLedger()
@@ -90,12 +171,24 @@ def scout_company(
             "credits_spent": ledger.total,
         }
 
-    # First match only; mark as new so Signal Agent emits a draftable trigger
     matched = dict(companies[0])
     matched["is_new_funding"] = True
-    company_ctx = _company_context(companies[0])
-    scouted = _scouted_content(companies[0], company_ctx)
+    matched["force_scout_signal"] = True
+    company_ctx = _company_context(matched)
+    scouted = _scouted_content(matched, company_ctx)
     month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    # Guard: never proceed with literal "None" identity
+    if not company_ctx.get("name") or str(company_ctx.get("name")).lower() == "none":
+        return {
+            "status": "failed",
+            "error": "company resolve returned an empty profile — try a clearer domain",
+            "domain": domain,
+            "name": name,
+            "credits_spent": ledger.total,
+            "matched_company": company_ctx,
+            "context": {"scouted": scouted, "month": month},
+        }
 
     result = run_cycle(
         config_path,
@@ -106,20 +199,14 @@ def scout_company(
     result["matched_company"] = company_ctx
     result["resolve_credits"] = ledger.total
 
-    # Current calendar month signals (not hourly-cycle scoped)
-    lookup = (
-        company_ctx.get("domain")
-        or company_ctx.get("name")
-        or domain
-        or name
-        or ""
-    )
+    lookup = company_ctx.get("domain") or domain or company_ctx.get("name") or name or ""
     try:
         from signalscout.http_api import drafts_for_company
 
-        items = (
-            drafts_for_company(str(lookup), month="current") if lookup else []
-        )
+        # Recent signals for this company (not hourly-cycle scoped)
+        items = drafts_for_company(str(lookup), month="recent") if lookup else []
+        if not items and lookup:
+            items = drafts_for_company(str(lookup), month="current")
     except Exception:  # noqa: BLE001
         items = []
     result["items"] = items
@@ -133,7 +220,7 @@ def scout_company(
         "drafts_created": len(drafts),
         "signals_this_month": len(items),
         "signals_in_graph": len(items),
-        "note": _context_note(company_ctx, len(created), len(items), month),
+        "note": _context_note(company_ctx, len(created), len(items), len(drafts), month),
         "signals": [
             {
                 "type": i.get("type") or i.get("state") or "signal",
@@ -151,32 +238,46 @@ def scout_company(
 
 
 def _context_note(
-    company: dict[str, Any], created: int, month_count: int, month: str
+    company: dict[str, Any],
+    created: int,
+    recent_count: int,
+    drafts: int,
+    month: str,
 ) -> str:
-    """Human-readable status — not tied to the hourly timer."""
-    if month_count:
-        return (
-            f"{month_count} signal{'s' if month_count != 1 else ''} in {month}"
-            + (f" · {created} new this scout" if created else "")
-        )
+    label = company.get("name") or company.get("domain") or "Company"
+    if drafts and recent_count:
+        return f"{label}: {recent_count} recent signal(s), {drafts} draft(s) ready"
     if created:
-        return f"{created} new signal{'s' if created != 1 else ''} this scout · {month}"
-    return (
-        f"No funding / headcount / exec triggers in {month} yet. "
-        "Live company profile below is what the agent fetched and stored."
-    )
+        return f"{label}: {created} new signal(s) this scout · drafting from live profile"
+    if recent_count:
+        return f"{label}: {recent_count} recent signal(s) in {month}"
+    return f"{label}: profile saved — open draft workspace after signals qualify"
 
 
 def _company_context(raw: dict[str, Any]) -> dict[str, Any]:
-    norm = normalize_company(raw)
+    try:
+        norm = normalize_company(raw)
+    except ValueError:
+        return {
+            "name": None,
+            "domain": raw.get("domain"),
+            "industry": None,
+            "description": None,
+            "employee_range": None,
+            "headcount": None,
+            "funding_stage": None,
+            "last_funding_date": None,
+            "last_funding_amount": None,
+            "headcount_growth_30d_pct": None,
+            "country": None,
+        }
     growth = norm.get("headcount_growth_30d_pct")
     if isinstance(growth, (int, float)):
         growth = round(float(growth), 1)
-    industry = norm.get("industry")
     return {
         "name": norm.get("name"),
         "domain": norm.get("domain"),
-        "industry": industry or None,
+        "industry": norm.get("industry") or None,
         "description": norm.get("description"),
         "employee_range": norm.get("employee_range"),
         "headcount": norm.get("headcount"),
@@ -190,9 +291,12 @@ def _company_context(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _scouted_content(raw: dict[str, Any], company: dict[str, Any]) -> dict[str, Any]:
     """Structured facts the agent actually pulled (shown even with 0 signals)."""
-    norm = normalize_company(raw)
+    try:
+        norm = normalize_company(raw)
+    except ValueError:
+        norm = {"jobs": [], "people": []}
     highlights: list[str] = []
-    if company.get("name"):
+    if company.get("name") and str(company["name"]).lower() != "none":
         highlights.append(f"Matched {company['name']}")
     if company.get("domain"):
         highlights.append(f"Domain {company['domain']}")
@@ -201,9 +305,7 @@ def _scouted_content(raw: dict[str, Any], company: dict[str, Any]) -> dict[str, 
     elif company.get("employee_range"):
         highlights.append(f"Size band: {company['employee_range']}")
     else:
-        highlights.append(
-            "Industry not in source data for this company (shown as unknown, not a cycle issue)"
-        )
+        highlights.append("Industry not returned by source for this company")
     if company.get("description"):
         desc = str(company["description"]).strip()
         if len(desc) > 220:

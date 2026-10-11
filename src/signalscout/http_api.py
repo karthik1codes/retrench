@@ -43,35 +43,40 @@ def _json(handler: BaseHTTPRequestHandler, code: int, payload: Any) -> None:
 def drafts_for_company(
     query: str,
     *,
-    month: str | None = "current",
+    month: str | None = "recent",
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """Return signals/drafts for a company.
 
     ``month``:
-      - ``\"current\"`` (default): calendar month in UTC
+      - ``\"recent\"`` (default): last 30 days
+      - ``\"current\"``: calendar month in UTC
       - ``YYYY-MM``: that month
-      - ``None`` / ``\"all\"``: no month filter
+      - ``None`` / ``\"all\"``: no time filter
     """
     q = query.strip().lower()
-    month_prefix = _month_prefix(month)
+    if not q or q in {"none", "null", "undefined"}:
+        return []
+    month_prefix, since_iso = _month_window(month)
     graph = connect_graph()
     try:
         with graph._driver.session() as session:
             result = session.run(
                 """
                 MATCH (c:Company)
-                WHERE toLower(coalesce(c.domain, '')) CONTAINS $q
+                WHERE toLower(coalesce(c.domain, '')) = $q
+                   OR toLower(coalesce(c.domain, '')) CONTAINS $q
                    OR toLower(coalesce(c.name, '')) CONTAINS $q
                 MATCH (s:Signal)-[:TRIGGERED_BY]->(c)
                 WHERE s.state <> 'archived'
                   AND (
-                    $month_prefix IS NULL
-                    OR substring(toString(coalesce(s.detected_at, '')), 0, 7) = $month_prefix
+                    ($month_prefix IS NULL AND $since_iso IS NULL)
+                    OR ($month_prefix IS NOT NULL AND substring(toString(coalesce(s.detected_at, '')), 0, 7) = $month_prefix)
+                    OR ($since_iso IS NOT NULL AND toString(coalesce(s.detected_at, '')) >= $since_iso)
                   )
                 OPTIONAL MATCH (d:Draft)-[:DRAFTED_FOR]->(s)
                 RETURN c.name AS company, c.domain AS domain,
-                       coalesce(c.industry, 'Uncategorized') AS industry,
+                       coalesce(c.industry, '') AS industry,
                        s.id AS signal_id,
                        coalesce(s.type, 'signal') AS type,
                        s.summary AS summary,
@@ -84,22 +89,35 @@ def drafts_for_company(
                 """,
                 q=q,
                 month_prefix=month_prefix,
+                since_iso=since_iso,
                 limit=limit,
             )
-            return [dict(r) for r in result]
+            rows = [dict(r) for r in result]
+            # Prefer exact domain matches first
+            exact = [
+                r
+                for r in rows
+                if str(r.get("domain") or "").lower() == q
+                or str(r.get("company") or "").lower() == q
+            ]
+            return exact or rows
     finally:
         graph.close()
 
 
-def _month_prefix(month: str | None) -> str | None:
+def _month_window(month: str | None) -> tuple[str | None, str | None]:
+    """Return (month_prefix, since_iso) — only one should be set."""
     if month is None or month in {"", "all", "*"}:
-        return None
+        return None, None
+    if month == "recent":
+        since = datetime.now(timezone.utc).timestamp() - (30 * 86400)
+        return None, datetime.fromtimestamp(since, tz=timezone.utc).isoformat()
     if month == "current":
-        return datetime.now(timezone.utc).strftime("%Y-%m")
-    # YYYY-MM
+        return datetime.now(timezone.utc).strftime("%Y-%m"), None
     if re.fullmatch(r"\d{4}-\d{2}", month):
-        return month
-    return datetime.now(timezone.utc).strftime("%Y-%m")
+        return month, None
+    since = datetime.now(timezone.utc).timestamp() - (30 * 86400)
+    return None, datetime.fromtimestamp(since, tz=timezone.utc).isoformat()
 
 
 def targets_payload(*, days: int = 7, limit: int = 200) -> dict[str, Any]:

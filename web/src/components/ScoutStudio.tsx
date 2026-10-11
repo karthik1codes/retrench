@@ -237,8 +237,22 @@ export function ScoutStudio() {
       const next: DraftRow[] = data.items || [];
       const company: MatchedCompany | null = data.matched_company || null;
       const ctx: ScoutContext | null = data.context || null;
+      const safeCompany =
+        company &&
+        company.name &&
+        String(company.name).toLowerCase() !== "none"
+          ? company
+          : company
+            ? {
+                ...company,
+                name:
+                  company.domain ||
+                  (looksDomain ? q.toLowerCase() : q) ||
+                  "Matched company",
+              }
+            : null;
       setItems(next);
-      setMatched(company);
+      setMatched(safeCompany);
       setContext(ctx);
       setSelected(next.find((x) => x.draft_body) || next[0] || null);
 
@@ -248,22 +262,22 @@ export function ScoutStudio() {
         setStatus("Sample results · run again when live scout is connected");
       } else if (monthCount > 0) {
         setStatus(
-          `Done · ${monthCount} signal${monthCount === 1 ? "" : "s"} in ${monthLabel(ctx?.month)}${
-            company?.name ? ` · ${company.name}` : ""
+          `Done · ${monthCount} signal${monthCount === 1 ? "" : "s"} · ${
+            safeCompany?.name || q
           }`,
         );
       } else {
         setStatus(
           ctx?.note ||
-            `Done · profile saved${company?.name ? ` for ${company.name}` : ""} · no signals this month yet`,
+            `Done · profile saved for ${safeCompany?.name || q}`,
         );
       }
 
       toast.success(
-        company?.name
-          ? next.length
-            ? `Ready: ${company.name}`
-            : `Matched ${company.name} — see scouted content`
+        safeCompany?.name
+          ? next.find((x) => x.draft_body)
+            ? `Draft ready: ${safeCompany.name}`
+            : `Scouted ${safeCompany.name}`
           : "Scout complete",
       );
       void loadTargets();
@@ -454,7 +468,13 @@ export function ScoutStudio() {
             <Card className="shadow-none">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  {matched?.name || context?.company?.name || "Matched company"}
+                  {(() => {
+                    const n =
+                      matched?.name || context?.company?.name || query.trim();
+                    return n && String(n).toLowerCase() !== "none"
+                      ? n
+                      : matched?.domain || query.trim() || "Matched company";
+                  })()}
                 </CardTitle>
                 <CardDescription>
                   {[
@@ -487,14 +507,20 @@ export function ScoutStudio() {
                   ) : null}
                   {scouted?.highlights?.length ? (
                     <ul className="space-y-1.5 text-sm text-muted-foreground">
-                      {scouted.highlights.map((line) => (
-                        <li
-                          key={line}
-                          className="rounded-md border border-border/70 px-3 py-2 text-foreground/90"
-                        >
-                          {line}
-                        </li>
-                      ))}
+                      {scouted.highlights
+                        .filter(
+                          (line) =>
+                            !/matched none/i.test(line) &&
+                            String(line).toLowerCase() !== "none",
+                        )
+                        .map((line) => (
+                          <li
+                            key={line}
+                            className="rounded-md border border-border/70 px-3 py-2 text-foreground/90"
+                          >
+                            {line}
+                          </li>
+                        ))}
                     </ul>
                   ) : (
                     <p className="text-sm text-muted-foreground">
@@ -530,7 +556,7 @@ export function ScoutStudio() {
 
                 <div>
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Signals · {thisMonth}
+                    Recent signals · {thisMonth}
                   </p>
                   {signalContext.length > 0 ? (
                     <ul className="space-y-2">
@@ -564,9 +590,9 @@ export function ScoutStudio() {
                     </ul>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      No signals dated in {thisMonth}. That is separate from the
-                      hourly refresh — the scouted profile above is still live
-                      data from this run.
+                      No recent signals for this company yet. Run scout again
+                      after the agent stores a profile signal — a draft should
+                      appear in the workspace when qualification succeeds.
                     </p>
                   )}
                 </div>

@@ -15,10 +15,12 @@ class DraftAgent:
         self.graph = graph
         self.cfg = cfg
 
-    def run(self) -> list[str]:
+    def run(self, *, company_ids: set[str] | None = None) -> list[str]:
         drafted: list[str] = []
         budget = max(0, int(self.cfg.max_signals_per_cycle)) if self.cfg else 0
         for sig in self.graph.unfinished_signals():
+            if company_ids is not None and sig.get("company_id") not in company_ids:
+                continue
             if budget and len(drafted) >= budget:
                 break
             if sig["state"] != "qualified":

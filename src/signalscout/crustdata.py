@@ -156,7 +156,15 @@ class CrustDataClient:
     def company_enrich(
         self, domains: list[str] | None = None, names: list[str] | None = None
     ) -> Any:
-        body: dict[str, Any] = {"fields": ["basic_info"]}
+        body: dict[str, Any] = {
+            "fields": [
+                "basic_info",
+                "funding",
+                "headcount",
+                "locations",
+                "taxonomy",
+            ]
+        }
         if domains:
             body["domains"] = domains
         elif names:

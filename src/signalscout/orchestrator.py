@@ -59,9 +59,21 @@ def run_cycle(
                 ResearchAgent(graph, cfg).run()
                 result["drafts"] = DraftAgent(graph, cfg).run()
             else:
-                # Resume unfinished first (capped by max_signals_per_cycle)
-                ResearchAgent(graph, cfg).run()
-                DraftAgent(graph, cfg).run()
+                from signalscout.agents.signal_agent import normalize_company
+
+                scoped_ids: set[str] | None = None
+                if companies_override is not None:
+                    scoped_ids = set()
+                    for raw in companies_override:
+                        try:
+                            scoped_ids.add(normalize_company(raw)["crustdata_id"])
+                        except ValueError:
+                            continue
+                    # Interactive scout: do not drain unrelated backlog drafts
+                else:
+                    # Scheduled cycle: resume unfinished first
+                    ResearchAgent(graph, cfg).run()
+                    DraftAgent(graph, cfg).run()
 
                 signal_agent = SignalAgent(
                     graph,
@@ -72,8 +84,8 @@ def run_cycle(
                 )
                 created = signal_agent.run(run_id, segment_id)
                 result["created_signals"] = created
-                ResearchAgent(graph, cfg).run()
-                result["drafts"] = DraftAgent(graph, cfg).run()
+                ResearchAgent(graph, cfg).run(company_ids=scoped_ids)
+                result["drafts"] = DraftAgent(graph, cfg).run(company_ids=scoped_ids)
 
             if write_digest:
                 path = WatchlistAgent(graph).run(credits_spent=ledger.total)

@@ -26,7 +26,17 @@ def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
     taxonomy = raw.get("taxonomy") if isinstance(raw.get("taxonomy"), dict) else {}
     growth = headcount.get("growth_percent") if isinstance(headcount.get("growth_percent"), dict) else {}
 
-    cd_id = (
+    def _clean(val: Any) -> Any:
+        if val is None:
+            return None
+        if isinstance(val, str):
+            s = val.strip()
+            if not s or s.lower() in {"none", "null", "undefined", "unknown", "n/a"}:
+                return None
+            return s
+        return val
+
+    cd_id = _clean(
         raw.get("crustdata_company_id")
         or raw.get("crustdata_id")
         or raw.get("company_id")
@@ -36,7 +46,16 @@ def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
         or basic.get("name")
         or raw.get("domain")
         or raw.get("name")
+        or raw.get("primary_domain")
     )
+    name = _clean(basic.get("name") or raw.get("name") or raw.get("company_name"))
+    domain = _clean(
+        basic.get("primary_domain") or raw.get("domain") or raw.get("primary_domain")
+    )
+    if not cd_id:
+        cd_id = domain or name
+    if not name:
+        name = domain or (str(cd_id) if cd_id else None)
     round_type = funding.get("last_round_type") or raw.get("funding_stage")
     amount = funding.get("last_round_amount_usd") or raw.get("last_funding_amount")
     if isinstance(amount, (int, float)):
@@ -61,10 +80,13 @@ def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
     )
     employee_range = basic.get("employee_count_range") or raw.get("employee_count_range")
 
+    if not cd_id:
+        raise ValueError("company payload missing id/name/domain")
+
     return {
         "crustdata_id": str(cd_id),
-        "name": basic.get("name") or raw.get("name") or raw.get("company_name") or str(cd_id),
-        "domain": basic.get("primary_domain") or raw.get("domain") or raw.get("primary_domain"),
+        "name": name or str(cd_id),
+        "domain": domain,
         "industry": industry,
         "description": description,
         "employee_range": employee_range,
@@ -114,7 +136,10 @@ class SignalAgent:
         for raw in companies_raw:
             if self.crust.ledger.total >= self.cfg.credit_budget_per_cycle:
                 break
-            company = normalize_company(raw)
+            try:
+                company = normalize_company(raw)
+            except ValueError:
+                continue
             prev = self.graph.company_snapshot(company["crustdata_id"])
             self.graph.merge_company(company, segment_id)
             for sig in self._diff_signals(company, prev):
@@ -143,6 +168,10 @@ class SignalAgent:
         out: list[dict[str, Any]] = []
         cid = company["crustdata_id"]
         t = self.cfg.triggers
+        force_scout = bool(
+            (company.get("_raw") or {}).get("force_scout_signal")
+            or (company.get("_raw") or {}).get("is_new_funding")
+        )
 
         # funding — fire once per funding fingerprint (idempotent MERGE on signal id)
         if t.funding.enabled and company.get("last_funding_date") and company.get("funding_stage"):
@@ -150,7 +179,7 @@ class SignalAgent:
             stage_changed = (not prev) or (
                 prev.get("funding_stage") != company.get("funding_stage")
             )
-            is_new = bool(company.get("_raw", {}).get("is_new_funding")) or stage_changed
+            is_new = force_scout or stage_changed
             if is_new:
                 sid = _signal_id(cid, "funding", funding_fp)
                 amt = company.get("last_funding_amount") or ""
@@ -216,5 +245,62 @@ class SignalAgent:
                             "payload": {"company_id": cid, "person": person},
                         }
                     )
+
+        # Interactive scout: always emit at least one draftable profile signal
+        # from live company facts when classic triggers did not fire.
+        if force_scout and not out:
+            bits: list[str] = []
+            if company.get("industry"):
+                bits.append(f"industry {company['industry']}")
+            if company.get("funding_stage") or company.get("last_funding_amount"):
+                bits.append(
+                    "funding "
+                    + " ".join(
+                        str(x)
+                        for x in (
+                            company.get("funding_stage"),
+                            company.get("last_funding_amount"),
+                            company.get("last_funding_date"),
+                        )
+                        if x
+                    )
+                )
+            if company.get("headcount") is not None:
+                bits.append(f"headcount {company['headcount']}")
+            growth = company.get("headcount_growth_30d_pct")
+            if growth is not None:
+                bits.append(f"30d growth {float(growth):.1f}%")
+            if company.get("employee_range"):
+                bits.append(f"size {company['employee_range']}")
+            if company.get("country"):
+                bits.append(f"HQ {company['country']}")
+            if company.get("description"):
+                bits.append(str(company["description"])[:160])
+            fact_line = "; ".join(bits) if bits else "live company profile from CrustData"
+            label = company.get("name") or company.get("domain") or cid
+            domain = company.get("domain") or ""
+            fp = f"profile:{domain}:{company.get('funding_stage')}:{company.get('headcount')}:{company.get('last_funding_date')}"
+            sid = _signal_id(cid, "profile", fp)
+            out.append(
+                {
+                    "id": sid,
+                    "type": "profile",
+                    "severity": 78,
+                    "summary": f"{label} ({domain}): {fact_line}".strip(),
+                    "payload": {
+                        "company_id": cid,
+                        "name": company.get("name"),
+                        "domain": domain,
+                        "industry": company.get("industry"),
+                        "description": company.get("description"),
+                        "funding_stage": company.get("funding_stage"),
+                        "last_funding_date": company.get("last_funding_date"),
+                        "last_funding_amount": company.get("last_funding_amount"),
+                        "headcount": company.get("headcount"),
+                        "headcount_growth_30d_pct": company.get("headcount_growth_30d_pct"),
+                        "country": company.get("country"),
+                    },
+                }
+            )
 
         return out
