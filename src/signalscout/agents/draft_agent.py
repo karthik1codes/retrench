@@ -31,7 +31,9 @@ class DraftAgent:
             body = llm_complete(
                 system=(
                     "Write a cold email under 90 words. ONLY use facts from the user message. "
-                    "No invented metrics, names, or funding amounts. Draft only — do not send."
+                    "Copy funding amounts and dates exactly as written (e.g. $50,000,000, 2026-10-08). "
+                    "No invented metrics, names, or amounts. Draft only — do not send. "
+                    "No placeholder brackets like [Recipient's Name]."
                 ),
                 user=(
                     f"Company: {sig.get('company_name')}\n"
@@ -47,7 +49,7 @@ class DraftAgent:
                 },
             )
             body = self._clamp_words(body, 90)
-            # Strip any claim-looking numbers not present in facts (light guard)
+            # Drop claim-looking numbers not grounded in facts (allow $Xm paraphrases)
             body = self._strip_unknown_numbers(body, facts)
 
             draft_id = f"draft-{uuid.uuid4().hex[:10]}"
@@ -83,10 +85,53 @@ class DraftAgent:
         return " ".join(words[:n]).strip()
 
     @staticmethod
-    def _strip_unknown_numbers(body: str, facts: str) -> str:
-        allowed = set(re.findall(r"\d[\d,\.]*", facts))
+    def _fact_numbers(facts: str) -> set[float]:
+        """Numeric values grounded in facts, including $N → N million shorthand."""
+        allowed: set[float] = set()
+        for tok in re.findall(r"\d[\d,\.]*", facts):
+            try:
+                v = float(tok.replace(",", ""))
+            except ValueError:
+                continue
+            allowed.add(v)
+            if v >= 1_000_000:
+                allowed.add(v / 1_000_000)
+            if v >= 1_000_000_000:
+                allowed.add(v / 1_000_000_000)
+        for y, m, d in re.findall(r"(\d{4})-(\d{2})-(\d{2})", facts):
+            allowed.update(
+                {
+                    float(y),
+                    float(m),
+                    float(d),
+                    float(int(m)),
+                    float(int(d)),
+                }
+            )
+        return allowed
+
+    @classmethod
+    def _strip_unknown_numbers(cls, body: str, facts: str) -> str:
+        allowed = cls._fact_numbers(facts)
+
+        def grounded(v: float) -> bool:
+            for a in allowed:
+                if abs(v - a) < 1e-6:
+                    return True
+                # rounded percents / display forms (17.07 → 17)
+                if a > 1 and abs(v - round(a, 1)) < 0.15:
+                    return True
+                if a > 1 and abs(v - round(a)) < 0.51:
+                    return True
+            return False
+
         def repl(m: re.Match[str]) -> str:
-            tok = m.group(0)
-            return tok if tok in allowed else "[fact]"
-        # only replace dollar-like or large numbers not in facts
+            raw = m.group(0)
+            core = raw.lstrip("$").rstrip("%")
+            try:
+                v = float(core.replace(",", ""))
+            except ValueError:
+                return "[fact]"
+            return raw if grounded(v) else "[fact]"
+
         return re.sub(r"\$?\d[\d,\.]*%?", repl, body)

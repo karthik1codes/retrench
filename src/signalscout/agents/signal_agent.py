@@ -162,7 +162,9 @@ class SignalAgent:
                         "id": sid,
                         "type": "headcount_surge",
                         "severity": t.headcount_surge.min_severity,
-                        "summary": f"{company['name']} headcount +{growth}% in 30 days",
+                        "summary": (
+                            f"{company['name']} headcount +{float(growth):.1f}% in 30 days"
+                        ),
                         "payload": {
                             "company_id": cid,
                             "headcount_growth_30d_pct": growth,
