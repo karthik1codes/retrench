@@ -30,12 +30,14 @@ crustdata_filters:
 crustdata_fields:
   - basic_info.name
   - basic_info.primary_domain
+  - basic_info.description
   - basic_info.employee_count_range
   - funding
   - headcount.total
   - headcount.growth_percent
   - locations.country
   - taxonomy.professional_network_industry
+  - taxonomy.linkedin_industry
 
 triggers:
   funding:

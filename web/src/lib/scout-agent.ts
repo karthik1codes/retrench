@@ -9,7 +9,9 @@ const FALLBACK =
 export type MatchedCompany = {
   name?: string;
   domain?: string;
-  industry?: string;
+  industry?: string | null;
+  description?: string | null;
+  employee_range?: string | null;
   headcount?: number | string | null;
   funding_stage?: string | null;
   last_funding_date?: string | null;
@@ -28,10 +30,19 @@ export type ScoutSignalContext = {
   confidence?: number | null;
 };
 
+export type ScoutedContent = {
+  highlights?: string[];
+  fetched_at?: string;
+  fields?: Record<string, unknown>;
+};
+
 export type ScoutContext = {
   company?: MatchedCompany;
+  scouted?: ScoutedContent;
+  month?: string;
   signals_created?: number;
   drafts_created?: number;
+  signals_this_month?: number;
   signals_in_graph?: number;
   note?: string;
   signals?: ScoutSignalContext[];

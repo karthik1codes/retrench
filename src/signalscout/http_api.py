@@ -40,8 +40,21 @@ def _json(handler: BaseHTTPRequestHandler, code: int, payload: Any) -> None:
     handler.wfile.write(body)
 
 
-def drafts_for_company(query: str) -> list[dict[str, Any]]:
+def drafts_for_company(
+    query: str,
+    *,
+    month: str | None = "current",
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return signals/drafts for a company.
+
+    ``month``:
+      - ``\"current\"`` (default): calendar month in UTC
+      - ``YYYY-MM``: that month
+      - ``None`` / ``\"all\"``: no month filter
+    """
     q = query.strip().lower()
+    month_prefix = _month_prefix(month)
     graph = connect_graph()
     try:
         with graph._driver.session() as session:
@@ -52,6 +65,10 @@ def drafts_for_company(query: str) -> list[dict[str, Any]]:
                    OR toLower(coalesce(c.name, '')) CONTAINS $q
                 MATCH (s:Signal)-[:TRIGGERED_BY]->(c)
                 WHERE s.state <> 'archived'
+                  AND (
+                    $month_prefix IS NULL
+                    OR substring(toString(coalesce(s.detected_at, '')), 0, 7) = $month_prefix
+                  )
                 OPTIONAL MATCH (d:Draft)-[:DRAFTED_FOR]->(s)
                 RETURN c.name AS company, c.domain AS domain,
                        coalesce(c.industry, 'Uncategorized') AS industry,
@@ -63,17 +80,34 @@ def drafts_for_company(query: str) -> list[dict[str, Any]]:
                        d.id AS draft_id, d.body AS draft_body,
                        d.confidence AS confidence
                 ORDER BY s.detected_at DESC
-                LIMIT 20
+                LIMIT $limit
                 """,
                 q=q,
+                month_prefix=month_prefix,
+                limit=limit,
             )
             return [dict(r) for r in result]
     finally:
         graph.close()
 
 
-def targets_payload(*, limit: int = 200) -> dict[str, Any]:
-    """Companies in Neo4j grouped by industry for the scout target list."""
+def _month_prefix(month: str | None) -> str | None:
+    if month is None or month in {"", "all", "*"}:
+        return None
+    if month == "current":
+        return datetime.now(timezone.utc).strftime("%Y-%m")
+    # YYYY-MM
+    if re.fullmatch(r"\d{4}-\d{2}", month):
+        return month
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def targets_payload(*, days: int = 7, limit: int = 200) -> dict[str, Any]:
+    """Companies with drafts in the last ``days`` days, grouped by industry."""
+    days = max(1, min(int(days or 7), 90))
+    since = datetime.now(timezone.utc).timestamp() - (days * 86400)
+    since_iso = datetime.fromtimestamp(since, tz=timezone.utc).isoformat()
+
     graph = connect_graph()
     try:
         with graph._driver.session() as session:
@@ -86,13 +120,17 @@ def targets_payload(*, limit: int = 200) -> dict[str, Any]:
                 LIMIT 1
                 """
             ).single()
+            # Prefer companies that got a Draft this week (rolling window).
             rows = session.run(
                 """
-                MATCH (c:Company)
-                OPTIONAL MATCH (s:Signal)-[:TRIGGERED_BY]->(c)
-                WHERE s.state IS NULL OR s.state <> 'archived'
+                MATCH (d:Draft)-[:DRAFTED_FOR]->(s:Signal)-[:TRIGGERED_BY]->(c:Company)
+                WHERE d.created_at IS NOT NULL
+                  AND toString(d.created_at) >= $since
+                  AND (s.state IS NULL OR s.state <> 'archived')
                 WITH c,
-                     count(s) AS signal_count,
+                     count(DISTINCT d) AS draft_count,
+                     count(DISTINCT s) AS signal_count,
+                     max(d.created_at) AS last_draft_at,
                      max(s.detected_at) AS last_signal_at
                 RETURN coalesce(c.name, 'Unknown') AS name,
                        coalesce(c.domain, '') AS domain,
@@ -103,12 +141,15 @@ def targets_payload(*, limit: int = 200) -> dict[str, Any]:
                        c.last_funding_amount AS last_funding_amount,
                        c.headcount_growth_30d_pct AS headcount_growth_30d_pct,
                        c.country AS country,
+                       draft_count,
                        signal_count,
+                       last_draft_at,
                        last_signal_at,
                        c.updated_at AS updated_at
-                ORDER BY coalesce(last_signal_at, c.updated_at) DESC, name ASC
+                ORDER BY last_draft_at DESC, name ASC
                 LIMIT $limit
                 """,
+                since=since_iso,
                 limit=limit,
             )
             companies: list[dict[str, Any]] = []
@@ -127,7 +168,9 @@ def targets_payload(*, limit: int = 200) -> dict[str, Any]:
                         "last_funding_amount": r["last_funding_amount"],
                         "headcount_growth_30d_pct": growth,
                         "country": r["country"],
+                        "draft_count": int(r["draft_count"] or 0),
                         "signal_count": int(r["signal_count"] or 0),
+                        "last_draft_at": r["last_draft_at"],
                         "last_signal_at": r["last_signal_at"],
                         "updated_at": r["updated_at"],
                     }
@@ -153,6 +196,9 @@ def targets_payload(*, limit: int = 200) -> dict[str, Any]:
                 "status": "complete",
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "refresh_interval_hours": 1,
+                "window_days": days,
+                "window_since": since_iso,
+                "source": "weekly_drafts",
                 "total": len(companies),
                 "last_run_id": last_run["id"] if last_run else None,
                 "last_run_status": last_run["status"] if last_run else None,
@@ -169,19 +215,24 @@ def targets_payload(*, limit: int = 200) -> dict[str, Any]:
 
 
 def overview_payload() -> dict[str, Any]:
-    """Live dashboard stats + activity from Neo4j (no fixtures)."""
+    """Live dashboard stats + current-month activity/signals from Neo4j."""
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
     graph = connect_graph()
     try:
         with graph._driver.session() as session:
             counts = session.run(
                 """
-                OPTIONAL MATCH (s:Signal) WHERE s.state <> 'archived'
+                OPTIONAL MATCH (s:Signal)
+                WHERE s.state <> 'archived'
+                  AND substring(toString(coalesce(s.detected_at, '')), 0, 7) = $month
                 WITH count(s) AS signals
                 OPTIONAL MATCH (d:Draft)
+                WHERE substring(toString(coalesce(d.created_at, '')), 0, 7) = $month
                 WITH signals, count(d) AS drafts
                 OPTIONAL MATCH (c:Company)
                 RETURN signals, drafts, count(c) AS companies
-                """
+                """,
+                month=month,
             ).single()
             last_run = session.run(
                 """
@@ -196,24 +247,29 @@ def overview_payload() -> dict[str, Any]:
                 """
                 MATCH (s:Signal)
                 WHERE s.state <> 'archived' AND s.detected_at IS NOT NULL
+                  AND substring(toString(s.detected_at), 0, 7) = $month
                 WITH substring(toString(s.detected_at), 0, 10) AS day, count(*) AS signals
                 RETURN day, signals
                 ORDER BY day ASC
-                """
+                """,
+                month=month,
             )
             draft_days = session.run(
                 """
                 MATCH (d:Draft)
                 WHERE d.created_at IS NOT NULL
+                  AND substring(toString(d.created_at), 0, 7) = $month
                 WITH substring(toString(d.created_at), 0, 10) AS day, count(*) AS drafts
                 RETURN day, drafts
                 ORDER BY day ASC
-                """
+                """,
+                month=month,
             )
             signal_rows = session.run(
                 """
                 MATCH (s:Signal)-[:TRIGGERED_BY]->(c:Company)
                 WHERE s.state <> 'archived'
+                  AND substring(toString(coalesce(s.detected_at, '')), 0, 7) = $month
                 OPTIONAL MATCH (d:Draft)-[:DRAFTED_FOR]->(s)
                 RETURN s.id AS id,
                        coalesce(s.type, 'signal') AS type,
@@ -228,7 +284,8 @@ def overview_payload() -> dict[str, Any]:
                        d.body AS draft_body
                 ORDER BY s.detected_at DESC
                 LIMIT 100
-                """
+                """,
+                month=month,
             )
 
             by_day: dict[str, dict[str, int]] = {}
@@ -266,6 +323,7 @@ def overview_payload() -> dict[str, Any]:
 
             return {
                 "status": "complete",
+                "month": month,
                 "stats": {
                     "signals": int(counts["signals"] or 0) if counts else 0,
                     "drafts_ready": int(counts["drafts"] or 0) if counts else 0,
@@ -381,7 +439,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/targets":
             try:
-                _json(self, 200, targets_payload())
+                qs = parse_qs(parsed.query)
+                days_raw = (qs.get("days") or ["7"])[0]
+                try:
+                    days = int(days_raw)
+                except ValueError:
+                    days = 7
+                _json(self, 200, targets_payload(days=days))
             except Exception as e:  # noqa: BLE001
                 _json(self, 500, {"error": str(e), "status": "failed"})
             return

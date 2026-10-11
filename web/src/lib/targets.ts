@@ -11,7 +11,9 @@ export type TargetCompany = {
   last_funding_amount?: string | null;
   headcount_growth_30d_pct?: number | null;
   country?: string | null;
+  draft_count?: number;
   signal_count: number;
+  last_draft_at?: string | null;
   last_signal_at?: string | null;
   updated_at?: string | null;
 };
@@ -26,6 +28,9 @@ export type TargetsPayload = {
   status: string;
   generated_at?: string;
   refresh_interval_hours?: number;
+  window_days?: number;
+  window_since?: string;
+  source?: string;
   total: number;
   last_run_id?: string | null;
   last_run_status?: string | null;
@@ -52,7 +57,7 @@ export async function fetchTargets(): Promise<TargetsPayload> {
     };
   }
   try {
-    const res = await fetch(`${AGENT}/targets`, {
+    const res = await fetch(`${AGENT}/targets?days=7`, {
       headers: headers(),
       cache: "no-store",
       signal: AbortSignal.timeout(60_000),

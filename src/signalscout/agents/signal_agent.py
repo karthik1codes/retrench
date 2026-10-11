@@ -42,11 +42,32 @@ def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
     if isinstance(amount, (int, float)):
         amount = f"${amount:,.0f}"
 
+    industry = (
+        taxonomy.get("professional_network_industry")
+        or taxonomy.get("linkedin_industry")
+        or taxonomy.get("industry")
+        or raw.get("industry")
+        or taxonomy.get("crunchbase_categories")
+        or taxonomy.get("linkedin_industries")
+    )
+    if isinstance(industry, list):
+        industry = ", ".join(str(x) for x in industry if x)[:120] or None
+
+    description = (
+        basic.get("description")
+        or basic.get("short_description")
+        or raw.get("description")
+        or raw.get("short_description")
+    )
+    employee_range = basic.get("employee_count_range") or raw.get("employee_count_range")
+
     return {
         "crustdata_id": str(cd_id),
         "name": basic.get("name") or raw.get("name") or raw.get("company_name") or str(cd_id),
         "domain": basic.get("primary_domain") or raw.get("domain") or raw.get("primary_domain"),
-        "industry": taxonomy.get("professional_network_industry") or raw.get("industry"),
+        "industry": industry,
+        "description": description,
+        "employee_range": employee_range,
         "headcount": headcount.get("total") or raw.get("headcount") or raw.get("employee_count"),
         "funding_stage": round_type,
         "country": locations.get("country") or raw.get("country") or raw.get("hq_country"),

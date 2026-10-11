@@ -24,6 +24,7 @@ import type {
   DraftRow,
   MatchedCompany,
   ScoutContext,
+  ScoutedContent,
 } from "@/lib/scout-agent";
 import type { TargetCategory, TargetCompany } from "@/lib/targets";
 import {
@@ -77,6 +78,7 @@ function companyFacts(c?: MatchedCompany | null) {
   if (!c) return [];
   const facts: string[] = [];
   if (c.industry) facts.push(c.industry);
+  else facts.push("Industry unknown");
   if (c.funding_stage) {
     facts.push(
       c.last_funding_amount
@@ -86,6 +88,8 @@ function companyFacts(c?: MatchedCompany | null) {
   }
   if (c.headcount != null && c.headcount !== "") {
     facts.push(`${c.headcount} employees`);
+  } else if (c.employee_range) {
+    facts.push(String(c.employee_range));
   }
   if (
     typeof c.headcount_growth_30d_pct === "number" &&
@@ -95,6 +99,22 @@ function companyFacts(c?: MatchedCompany | null) {
   }
   if (c.country) facts.push(c.country);
   return facts;
+}
+
+function monthLabel(ym?: string | null) {
+  if (!ym) {
+    return new Date().toLocaleString(undefined, {
+      month: "long",
+      year: "numeric",
+    });
+  }
+  const [y, m] = ym.split("-").map(Number);
+  if (!y || !m) return ym;
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString(undefined, {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 export function ScoutStudio() {
@@ -115,6 +135,7 @@ export function ScoutStudio() {
   const [categories, setCategories] = useState<TargetCategory[]>([]);
   const [targetsMeta, setTargetsMeta] = useState<{
     total: number;
+    windowDays?: number;
     lastRunAt?: string | null;
     generatedAt?: string;
     error?: string;
@@ -138,6 +159,7 @@ export function ScoutStudio() {
       setCategories(cats);
       setTargetsMeta({
         total: data.total || 0,
+        windowDays: data.window_days || 7,
         lastRunAt: data.last_run_at,
         generatedAt: data.generated_at,
       });
@@ -220,22 +242,20 @@ export function ScoutStudio() {
       setContext(ctx);
       setSelected(next.find((x) => x.draft_body) || next[0] || null);
 
-      const created = ctx?.signals_created ?? 0;
-      const inGraph = ctx?.signals_in_graph ?? next.length;
+      const monthCount =
+        ctx?.signals_this_month ?? ctx?.signals_in_graph ?? next.length;
       if (data.demo) {
         setStatus("Sample results · run again when live scout is connected");
-      } else if (next.length > 0) {
+      } else if (monthCount > 0) {
         setStatus(
-          `Done · ${next.length} signal${next.length === 1 ? "" : "s"}${
+          `Done · ${monthCount} signal${monthCount === 1 ? "" : "s"} in ${monthLabel(ctx?.month)}${
             company?.name ? ` · ${company.name}` : ""
           }`,
         );
-      } else if (created > 0) {
-        setStatus(`Done · ${created} new signal(s) this run`);
       } else {
         setStatus(
           ctx?.note ||
-            `Done · 0 new signals${company?.name ? ` · ${company.name} profile saved` : ""}`,
+            `Done · profile saved${company?.name ? ` for ${company.name}` : ""} · no signals this month yet`,
         );
       }
 
@@ -243,7 +263,7 @@ export function ScoutStudio() {
         company?.name
           ? next.length
             ? `Ready: ${company.name}`
-            : `Matched ${company.name} — see context below`
+            : `Matched ${company.name} — see scouted content`
           : "Scout complete",
       );
       void loadTargets();
@@ -366,6 +386,7 @@ export function ScoutStudio() {
   }
 
   const facts = companyFacts(matched || context?.company);
+  const scouted: ScoutedContent | undefined = context?.scouted;
   const signalContext = context?.signals?.length
     ? context.signals
     : items.map((i) => ({
@@ -377,6 +398,7 @@ export function ScoutStudio() {
         has_draft: Boolean(i.draft_body),
         confidence: i.confidence,
       }));
+  const thisMonth = monthLabel(context?.month);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 md:py-8">
@@ -443,7 +465,7 @@ export function ScoutStudio() {
                     .join(" · ") || "Live data from the scout agent"}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
                 {facts.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {facts.map((f) => (
@@ -453,18 +475,49 @@ export function ScoutStudio() {
                     ))}
                   </div>
                 ) : null}
+
+                <div>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Scouted content
+                  </p>
+                  {matched?.description || context?.company?.description ? (
+                    <p className="mb-2 text-sm leading-relaxed text-foreground/90">
+                      {matched?.description || context?.company?.description}
+                    </p>
+                  ) : null}
+                  {scouted?.highlights?.length ? (
+                    <ul className="space-y-1.5 text-sm text-muted-foreground">
+                      {scouted.highlights.map((line) => (
+                        <li
+                          key={line}
+                          className="rounded-md border border-border/70 px-3 py-2 text-foreground/90"
+                        >
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Company matched and saved. Open details appear as the
+                      agent returns funding, headcount, and field data.
+                    </p>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-lg border border-border px-2 py-2">
+                    <p className="text-lg font-semibold tabular-nums">
+                      {context?.signals_this_month ??
+                        context?.signals_in_graph ??
+                        items.length}
+                    </p>
+                    <p className="text-muted-foreground">This month</p>
+                  </div>
                   <div className="rounded-lg border border-border px-2 py-2">
                     <p className="text-lg font-semibold tabular-nums">
                       {context?.signals_created ?? 0}
                     </p>
-                    <p className="text-muted-foreground">New this run</p>
-                  </div>
-                  <div className="rounded-lg border border-border px-2 py-2">
-                    <p className="text-lg font-semibold tabular-nums">
-                      {context?.signals_in_graph ?? items.length}
-                    </p>
-                    <p className="text-muted-foreground">In graph</p>
+                    <p className="text-muted-foreground">New scout</p>
                   </div>
                   <div className="rounded-lg border border-border px-2 py-2">
                     <p className="text-lg font-semibold tabular-nums">
@@ -474,42 +527,49 @@ export function ScoutStudio() {
                     <p className="text-muted-foreground">Drafts</p>
                   </div>
                 </div>
-                {signalContext.length > 0 ? (
-                  <ul className="space-y-2">
-                    {signalContext.slice(0, 5).map((s, idx) => (
-                      <li
-                        key={`${s.type}-${idx}-${s.summary?.slice(0, 24)}`}
-                        className="rounded-lg border border-border px-3 py-2 text-left"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            {s.type || "signal"}
-                          </span>
-                          {s.severity != null ? (
-                            <Badge variant="outline">{s.severity}</Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-sm leading-snug">
-                          {s.summary || "No summary"}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {[
-                            s.state,
-                            s.has_draft ? "draft ready" : null,
-                            formatWhen(s.detected_at),
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No qualifying triggers yet. The company profile is stored so
-                    the hourly cycle can surface new signals when they appear.
+
+                <div>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Signals · {thisMonth}
                   </p>
-                )}
+                  {signalContext.length > 0 ? (
+                    <ul className="space-y-2">
+                      {signalContext.slice(0, 8).map((s, idx) => (
+                        <li
+                          key={`${s.type}-${idx}-${s.summary?.slice(0, 24)}`}
+                          className="rounded-lg border border-border px-3 py-2 text-left"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              {s.type || "signal"}
+                            </span>
+                            {s.severity != null ? (
+                              <Badge variant="outline">{s.severity}</Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-sm leading-snug">
+                            {s.summary || "No summary"}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {[
+                              s.state,
+                              s.has_draft ? "draft ready" : null,
+                              formatWhen(s.detected_at),
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No signals dated in {thisMonth}. That is separate from the
+                      hourly refresh — the scouted profile above is still live
+                      data from this run.
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
@@ -518,13 +578,15 @@ export function ScoutStudio() {
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <CardTitle className="text-base">Scout targets</CardTitle>
+                  <CardTitle className="text-base">
+                    This week&apos;s draft companies
+                  </CardTitle>
                   <CardDescription>
                     {targetsLoading
-                      ? "Loading live companies…"
+                      ? "Loading companies with drafts…"
                       : targetsMeta.total > 0
-                        ? `${targetsMeta.total} companies · refreshes hourly`
-                        : "Seed list until the instance has companies"}
+                        ? `${targetsMeta.total} with drafts in the last ${targetsMeta.windowDays || 7} days · refreshes hourly`
+                        : "No drafts this week yet — seed list below until the cycle writes some"}
                   </CardDescription>
                 </div>
                 <Button
@@ -591,13 +653,19 @@ export function ScoutStudio() {
                               {c.name}
                             </span>
                             <span className="block text-xs text-muted-foreground">
-                              {[c.domain, c.funding_stage, c.industry]
+                              {[
+                                c.domain,
+                                c.funding_stage,
+                                c.industry,
+                                formatWhen(c.last_draft_at),
+                              ]
                                 .filter(Boolean)
                                 .join(" · ")}
                             </span>
                           </span>
                           <Badge variant="secondary">
-                            {c.signal_count} sig
+                            {c.draft_count ?? 0} draft
+                            {(c.draft_count ?? 0) === 1 ? "" : "s"}
                           </Badge>
                         </button>
                       </li>

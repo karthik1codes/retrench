@@ -25,7 +25,14 @@ export default async function DashboardPage() {
           <ChartAreaInteractive activity={overview.activity} />
         </div>
         <div className="px-4 lg:px-6">
-          <h2 className="mb-3 text-base font-medium">Live signals</h2>
+          <h2 className="mb-3 text-base font-medium">
+            Signals this month
+            {overview.month ? (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                {overview.month}
+              </span>
+            ) : null}
+          </h2>
         </div>
         <SignalsTable signals={overview.signals} error={overview.error} />
       </div>

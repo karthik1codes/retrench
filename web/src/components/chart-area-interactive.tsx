@@ -47,15 +47,19 @@ export function ChartAreaInteractive({
   activity: ActivityPoint[];
 }) {
   const isMobile = useIsMobile();
-  const [timeRange, setTimeRange] = React.useState("90d");
+  const [timeRange, setTimeRange] = React.useState("month");
 
   React.useEffect(() => {
-    if (isMobile) setTimeRange("7d");
+    if (isMobile) setTimeRange("month");
   }, [isMobile]);
 
   const filteredData = React.useMemo(() => {
     if (!activity.length) return [];
     const sorted = [...activity].sort((a, b) => a.date.localeCompare(b.date));
+    if (timeRange === "month") {
+      const month = new Date().toISOString().slice(0, 7);
+      return sorted.filter((row) => row.date.startsWith(month));
+    }
     const last = sorted[sorted.length - 1]?.date;
     if (!last) return sorted;
     const end = new Date(last);
@@ -67,24 +71,31 @@ export function ChartAreaInteractive({
     return sorted.filter((row) => new Date(row.date) >= start);
   }, [activity, timeRange]);
 
+  const monthLabel = new Date().toLocaleString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+
   return (
     <Card className="@container/card">
       <CardHeader>
         <CardTitle>Scout activity</CardTitle>
         <CardDescription>
           {activity.length
-            ? "Signals and drafts from your live graph"
-            : "No activity yet — run a scout cycle"}
+            ? timeRange === "month"
+              ? `Signals and drafts for ${monthLabel}`
+              : "Signals and drafts from your live graph"
+            : `No signals yet in ${monthLabel}`}
         </CardDescription>
         <CardAction>
           <ToggleGroup
             multiple={false}
             value={timeRange ? [timeRange] : []}
-            onValueChange={(value) => setTimeRange(value[0] ?? "90d")}
+            onValueChange={(value) => setTimeRange(value[0] ?? "month")}
             variant="outline"
             className="hidden *:data-[slot=toggle-group-item]:px-4! @[767px]/card:flex"
           >
-            <ToggleGroupItem value="90d">Last 3 months</ToggleGroupItem>
+            <ToggleGroupItem value="month">This month</ToggleGroupItem>
             <ToggleGroupItem value="30d">Last 30 days</ToggleGroupItem>
             <ToggleGroupItem value="7d">Last 7 days</ToggleGroupItem>
           </ToggleGroup>
@@ -99,10 +110,10 @@ export function ChartAreaInteractive({
               size="sm"
               aria-label="Select range"
             >
-              <SelectValue placeholder="Last 3 months" />
+              <SelectValue placeholder="This month" />
             </SelectTrigger>
             <SelectContent className="rounded-xl">
-              <SelectItem value="90d">Last 3 months</SelectItem>
+              <SelectItem value="month">This month</SelectItem>
               <SelectItem value="30d">Last 30 days</SelectItem>
               <SelectItem value="7d">Last 7 days</SelectItem>
             </SelectContent>

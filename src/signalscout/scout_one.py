@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from signalscout.agents.signal_agent import normalize_company
@@ -93,6 +94,8 @@ def scout_company(
     matched = dict(companies[0])
     matched["is_new_funding"] = True
     company_ctx = _company_context(companies[0])
+    scouted = _scouted_content(companies[0], company_ctx)
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
 
     result = run_cycle(
         config_path,
@@ -103,7 +106,7 @@ def scout_company(
     result["matched_company"] = company_ctx
     result["resolve_credits"] = ledger.total
 
-    # Always attach live signal/draft rows from the graph for this company
+    # Current calendar month signals (not hourly-cycle scoped)
     lookup = (
         company_ctx.get("domain")
         or company_ctx.get("name")
@@ -114,7 +117,9 @@ def scout_company(
     try:
         from signalscout.http_api import drafts_for_company
 
-        items = drafts_for_company(str(lookup)) if lookup else []
+        items = (
+            drafts_for_company(str(lookup), month="current") if lookup else []
+        )
     except Exception:  # noqa: BLE001
         items = []
     result["items"] = items
@@ -122,10 +127,13 @@ def scout_company(
     drafts = result.get("drafts") or []
     result["context"] = {
         "company": company_ctx,
+        "scouted": scouted,
+        "month": month,
         "signals_created": len(created),
         "drafts_created": len(drafts),
+        "signals_this_month": len(items),
         "signals_in_graph": len(items),
-        "note": _context_note(company_ctx, len(created), len(items)),
+        "note": _context_note(company_ctx, len(created), len(items), month),
         "signals": [
             {
                 "type": i.get("type") or i.get("state") or "signal",
@@ -142,27 +150,21 @@ def scout_company(
     return result
 
 
-def _context_note(company: dict[str, Any], created: int, in_graph: int) -> str:
-    bits: list[str] = []
-    if company.get("industry"):
-        bits.append(str(company["industry"]))
-    if company.get("funding_stage"):
-        stage = str(company["funding_stage"])
-        if company.get("last_funding_amount"):
-            stage = f"{stage} ({company['last_funding_amount']})"
-        bits.append(stage)
-    if company.get("headcount"):
-        bits.append(f"{company['headcount']} employees")
-    growth = company.get("headcount_growth_30d_pct")
-    if isinstance(growth, (int, float)) and growth:
-        bits.append(f"{growth}% headcount growth (30d)")
+def _context_note(
+    company: dict[str, Any], created: int, month_count: int, month: str
+) -> str:
+    """Human-readable status — not tied to the hourly timer."""
+    if month_count:
+        return (
+            f"{month_count} signal{'s' if month_count != 1 else ''} in {month}"
+            + (f" · {created} new this scout" if created else "")
+        )
     if created:
-        bits.append(f"{created} new signal{'s' if created != 1 else ''} this run")
-    elif in_graph:
-        bits.append(f"{in_graph} existing signal{'s' if in_graph != 1 else ''} in graph")
-    else:
-        bits.append("no qualifying signals yet — company profile stored for next cycle")
-    return " · ".join(bits)
+        return f"{created} new signal{'s' if created != 1 else ''} this scout · {month}"
+    return (
+        f"No funding / headcount / exec triggers in {month} yet. "
+        "Live company profile below is what the agent fetched and stored."
+    )
 
 
 def _company_context(raw: dict[str, Any]) -> dict[str, Any]:
@@ -170,14 +172,96 @@ def _company_context(raw: dict[str, Any]) -> dict[str, Any]:
     growth = norm.get("headcount_growth_30d_pct")
     if isinstance(growth, (int, float)):
         growth = round(float(growth), 1)
+    industry = norm.get("industry")
     return {
         "name": norm.get("name"),
         "domain": norm.get("domain"),
-        "industry": norm.get("industry") or "Uncategorized",
+        "industry": industry or None,
+        "description": norm.get("description"),
+        "employee_range": norm.get("employee_range"),
         "headcount": norm.get("headcount"),
         "funding_stage": norm.get("funding_stage"),
         "last_funding_date": norm.get("last_funding_date"),
         "last_funding_amount": norm.get("last_funding_amount"),
         "headcount_growth_30d_pct": growth,
         "country": norm.get("country"),
+    }
+
+
+def _scouted_content(raw: dict[str, Any], company: dict[str, Any]) -> dict[str, Any]:
+    """Structured facts the agent actually pulled (shown even with 0 signals)."""
+    norm = normalize_company(raw)
+    highlights: list[str] = []
+    if company.get("name"):
+        highlights.append(f"Matched {company['name']}")
+    if company.get("domain"):
+        highlights.append(f"Domain {company['domain']}")
+    if company.get("industry"):
+        highlights.append(f"Industry: {company['industry']}")
+    elif company.get("employee_range"):
+        highlights.append(f"Size band: {company['employee_range']}")
+    else:
+        highlights.append(
+            "Industry not in source data for this company (shown as unknown, not a cycle issue)"
+        )
+    if company.get("description"):
+        desc = str(company["description"]).strip()
+        if len(desc) > 220:
+            desc = desc[:217].rstrip() + "…"
+        highlights.append(desc)
+    if company.get("funding_stage") or company.get("last_funding_amount"):
+        bits = [
+            x
+            for x in (
+                company.get("funding_stage"),
+                company.get("last_funding_amount"),
+                company.get("last_funding_date")
+                and f"announced {company.get('last_funding_date')}",
+            )
+            if x
+        ]
+        highlights.append("Funding: " + " · ".join(str(b) for b in bits))
+    if company.get("headcount") is not None:
+        line = f"Headcount: {company['headcount']}"
+        growth = company.get("headcount_growth_30d_pct")
+        if isinstance(growth, (int, float)):
+            line += f" ({growth:+.1f}% / 30d)"
+        highlights.append(line)
+    elif company.get("employee_range"):
+        highlights.append(f"Employee range: {company['employee_range']}")
+    if company.get("country"):
+        highlights.append(f"HQ: {company['country']}")
+
+    jobs = norm.get("jobs") or []
+    people = norm.get("people") or []
+    if isinstance(jobs, list) and jobs:
+        highlights.append(f"{len(jobs)} open roles in payload")
+    if isinstance(people, list) and people:
+        titles = [
+            p.get("title") or p.get("name")
+            for p in people[:3]
+            if isinstance(p, dict)
+        ]
+        titles = [t for t in titles if t]
+        highlights.append(
+            f"{len(people)} people in payload"
+            + (f" ({', '.join(str(t) for t in titles)})" if titles else "")
+        )
+
+    return {
+        "highlights": highlights,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fields": {
+            "name": company.get("name"),
+            "domain": company.get("domain"),
+            "industry": company.get("industry"),
+            "description": company.get("description"),
+            "funding_stage": company.get("funding_stage"),
+            "last_funding_date": company.get("last_funding_date"),
+            "last_funding_amount": company.get("last_funding_amount"),
+            "headcount": company.get("headcount"),
+            "headcount_growth_30d_pct": company.get("headcount_growth_30d_pct"),
+            "employee_range": company.get("employee_range"),
+            "country": company.get("country"),
+        },
     }

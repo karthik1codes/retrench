@@ -35,6 +35,7 @@ export type OverviewSignal = {
 
 export type OverviewPayload = {
   status: string;
+  month?: string;
   stats: OverviewStats;
   activity: ActivityPoint[];
   signals: OverviewSignal[];
