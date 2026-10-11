@@ -1,0 +1,13 @@
+{
+  "id": "entire-ckpt-checkout-retries",
+  "session_id": "cursor-session-remove-retries",
+  "commit": "a1b2c3d",
+  "summary": "Coding session removed bounded retries from checkout_agent (v2.8). Linked to Checkout Recovery margin cliff.",
+  "files": [
+    "checkout_agent/retry_policy.py",
+    "prompts/checkout_recovery.md",
+    "demo/agents/checkout_agent.py"
+  ],
+  "created_at": "2026-10-10T07:00:00.000Z",
+  "agent": "cursor"
+}
