@@ -37,7 +37,10 @@ class CreditLedger:
 
     def write(self, out: Path) -> None:
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({"total": self.total, "entries": self.entries}, indent=2), encoding="utf-8")
+        out.write_text(
+            json.dumps({"total": self.total, "entries": self.entries}, indent=2),
+            encoding="utf-8",
+        )
 
 
 class CrustDataClient:
@@ -72,13 +75,9 @@ class CrustDataClient:
         *,
         max_retries: int = 5,
     ) -> Any:
-        if not self.api_key and not isinstance(self._client._transport, httpx.MockTransport):
-            # allow mock transport without key
-            pass
-
         delay = 1.0
         last_err: Exception | None = None
-        for attempt in range(max_retries):
+        for _attempt in range(max_retries):
             try:
                 resp = self._client.request(method, path, json=body)
                 credits = float(resp.headers.get("X-Credits-Used") or "0")
@@ -88,8 +87,14 @@ class CrustDataClient:
                     time.sleep(delay)
                     delay = min(delay * 2, 30)
                     continue
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    detail = resp.text[:800]
+                    raise RuntimeError(
+                        f"CrustData HTTP {resp.status_code} {path}: {detail}"
+                    )
                 return resp.json()
+            except RuntimeError:
+                raise
             except Exception as e:  # noqa: BLE001
                 last_err = e
                 time.sleep(delay)
@@ -98,20 +103,59 @@ class CrustDataClient:
 
     def company_search(
         self,
-        filters: list[dict[str, Any]],
+        filters: list[dict[str, Any]] | dict[str, Any],
         *,
         limit: int = 25,
-        query: str | None = None,
+        search: dict[str, Any] | None = None,
+        fields: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        body: dict[str, Any] = {"filters": filters, "limit": limit}
-        if query:
-            body["query"] = query
+        if isinstance(filters, list):
+            if len(filters) == 1:
+                filt: dict[str, Any] = filters[0]
+            else:
+                filt = {"op": "and", "conditions": filters}
+        else:
+            filt = filters
+
+        body: dict[str, Any] = {
+            "filters": filt,
+            "limit": limit,
+            "fields": fields
+            or [
+                "basic_info.name",
+                "basic_info.primary_domain",
+                "funding",
+                "headcount.total",
+                "headcount.growth_percent",
+                "locations.country",
+            ],
+        }
+        # Ranked NL search — do not combine with sorts
+        if search and search.get("query"):
+            body["search"] = {
+                "query": search["query"],
+                "mode": search.get("mode") or "hybrid",
+            }
+        else:
+            body["sorts"] = [
+                {"field": "funding.last_fundraise_date", "order": "desc"}
+            ]
+
         data = self._request("POST", "/company/search", body)
         if isinstance(data, list):
             return data
-        return data.get("companies") or data.get("results") or data.get("data") or []
+        for key in ("companies", "results", "data", "items"):
+            if isinstance(data.get(key), list):
+                return data[key]
+        # some responses wrap under companies.results
+        companies = data.get("companies")
+        if isinstance(companies, dict) and isinstance(companies.get("results"), list):
+            return companies["results"]
+        return []
 
-    def company_enrich(self, domains: list[str] | None = None, names: list[str] | None = None) -> Any:
+    def company_enrich(
+        self, domains: list[str] | None = None, names: list[str] | None = None
+    ) -> Any:
         body: dict[str, Any] = {"fields": ["basic_info"]}
         if domains:
             body["domains"] = domains

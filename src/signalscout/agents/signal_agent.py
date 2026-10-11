@@ -19,25 +19,41 @@ def _signal_id(company_id: str, signal_type: str, fingerprint: str) -> str:
 
 def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
     """Map CrustData / mock payloads into graph company fields."""
+    basic = raw.get("basic_info") if isinstance(raw.get("basic_info"), dict) else {}
+    funding = raw.get("funding") if isinstance(raw.get("funding"), dict) else {}
+    headcount = raw.get("headcount") if isinstance(raw.get("headcount"), dict) else {}
+    locations = raw.get("locations") if isinstance(raw.get("locations"), dict) else {}
+    taxonomy = raw.get("taxonomy") if isinstance(raw.get("taxonomy"), dict) else {}
+    growth = headcount.get("growth_percent") if isinstance(headcount.get("growth_percent"), dict) else {}
+
     cd_id = (
-        raw.get("crustdata_id")
+        raw.get("crustdata_company_id")
+        or raw.get("crustdata_id")
         or raw.get("company_id")
         or raw.get("id")
+        or basic.get("company_id")
+        or basic.get("primary_domain")
+        or basic.get("name")
         or raw.get("domain")
         or raw.get("name")
     )
+    round_type = funding.get("last_round_type") or raw.get("funding_stage")
+    amount = funding.get("last_round_amount_usd") or raw.get("last_funding_amount")
+    if isinstance(amount, (int, float)):
+        amount = f"${amount:,.0f}"
+
     return {
         "crustdata_id": str(cd_id),
-        "name": raw.get("name") or raw.get("company_name") or str(cd_id),
-        "domain": raw.get("domain") or raw.get("primary_domain"),
-        "industry": raw.get("industry"),
-        "headcount": raw.get("headcount") or raw.get("employee_count"),
-        "funding_stage": raw.get("funding_stage")
-        or raw.get("last_funding_round_type"),
-        "country": raw.get("country") or raw.get("hq_country"),
-        "last_funding_date": raw.get("last_funding_date"),
-        "last_funding_amount": raw.get("last_funding_amount"),
-        "headcount_growth_30d_pct": raw.get("headcount_growth_30d_pct"),
+        "name": basic.get("name") or raw.get("name") or raw.get("company_name") or str(cd_id),
+        "domain": basic.get("primary_domain") or raw.get("domain") or raw.get("primary_domain"),
+        "industry": taxonomy.get("professional_network_industry") or raw.get("industry"),
+        "headcount": headcount.get("total") or raw.get("headcount") or raw.get("employee_count"),
+        "funding_stage": round_type,
+        "country": locations.get("country") or raw.get("country") or raw.get("hq_country"),
+        "last_funding_date": funding.get("last_fundraise_date") or raw.get("last_funding_date"),
+        "last_funding_amount": amount,
+        "headcount_growth_30d_pct": growth.get("1m")
+        or raw.get("headcount_growth_30d_pct"),
         "jobs": raw.get("jobs") or [],
         "people": raw.get("people") or [],
         "_raw": raw,
@@ -70,7 +86,8 @@ class SignalAgent:
             companies_raw = self.crust.company_search(
                 self.cfg.crustdata_filters,
                 limit=self.cfg.limit_companies,
-                query=self.cfg.dsl_text,
+                search=self.cfg.search,
+                fields=self.cfg.crustdata_fields or None,
             )
 
         for raw in companies_raw:

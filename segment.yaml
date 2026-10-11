@@ -3,22 +3,39 @@
 
 dsl_text: "Series A–B fintech SaaS, 20–200 employees, US"
 
+# CrustData filters — field paths must match Company Search docs
 crustdata_filters:
-  - field: company_type
+  - field: locations.country
     type: "="
-    value: "SaaS"
-  - field: industry
+    value: "USA"
+  - field: funding.last_round_type
     type: "in"
-    value: ["Fintech", "Financial Services"]
-  - field: employee_count_range
-    type: "in"
-    value: ["11-50", "51-200"]
-  - field: hq_country
-    type: "="
-    value: "United States"
-  - field: last_funding_round_type
-    type: "in"
-    value: ["Series A", "Series B"]
+    value: ["series_a", "series_b"]
+  - field: headcount.total
+    type: ">"
+    value: 20
+  - field: headcount.total
+    type: "<"
+    value: 200
+  - field: funding.last_fundraise_date
+    type: ">"
+    value: "2024-01-01"
+
+# Omit ranked `search` when using sorts (API forbids combining them).
+# Uncomment for NL discovery instead of date sort:
+# search:
+#   query: "fintech SaaS"
+#   mode: hybrid
+
+crustdata_fields:
+  - basic_info.name
+  - basic_info.primary_domain
+  - basic_info.employee_count_range
+  - funding
+  - headcount.total
+  - headcount.growth_percent
+  - locations.country
+  - taxonomy.professional_network_industry
 
 triggers:
   funding:

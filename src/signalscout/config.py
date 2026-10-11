@@ -42,6 +42,8 @@ class Triggers(BaseModel):
 class SegmentConfig(BaseModel):
     dsl_text: str
     crustdata_filters: list[dict[str, Any]]
+    search: dict[str, Any] | None = None
+    crustdata_fields: list[str] = Field(default_factory=list)
     triggers: Triggers = Field(default_factory=Triggers)
     archive_below_severity: int = 70
     credit_budget_per_cycle: float = 50
@@ -55,6 +57,11 @@ def load_segment(path: str | Path) -> SegmentConfig:
     return SegmentConfig.model_validate(data)
 
 
-def filters_for_crustdata(cfg: SegmentConfig) -> list[dict[str, Any]]:
-    """Return structured filters for POST /company/search."""
-    return list(cfg.crustdata_filters)
+def filters_for_crustdata(cfg: SegmentConfig) -> dict[str, Any]:
+    """Build CrustData filters object (single condition or op/and)."""
+    conds = list(cfg.crustdata_filters)
+    if not conds:
+        return {"field": "locations.country", "type": "=", "value": "USA"}
+    if len(conds) == 1:
+        return conds[0]
+    return {"op": "and", "conditions": conds}
