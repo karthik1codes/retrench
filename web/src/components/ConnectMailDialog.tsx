@@ -48,7 +48,8 @@ export function ConnectMailDialog({
       setSmtpHost(s.smtpHost || "");
     }
     onChange?.(s);
-  }, [onChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once on mount
+  }, []);
 
   function connect() {
     if (!email.trim() || !appPassword.trim()) {

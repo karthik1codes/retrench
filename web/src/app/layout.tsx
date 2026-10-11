@@ -3,9 +3,12 @@ import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Signal Scout — reach out when something real happened",
+  title: {
+    default: "Signal Scout",
+    template: "%s · Signal Scout",
+  },
   description:
-    "Scout any SaaS company on EC2, pull evidence-backed drafts, send from your own inbox.",
+    "Reach out only when something real happened — funding, hiring, exec moves. Evidence-backed drafts you send yourself.",
 };
 
 export default function RootLayout({
@@ -27,9 +30,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="antialiased">
+      <body className="min-h-[100svh] antialiased">
         {children}
-        <Toaster richColors position="top-center" />
+        <Toaster richColors position="top-center" closeButton />
       </body>
     </html>
   );

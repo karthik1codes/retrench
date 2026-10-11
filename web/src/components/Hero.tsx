@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
+import { ButtonLink } from "@/components/ui/button-link";
 
 gsap.registerPlugin(useGSAP);
 
@@ -12,27 +12,22 @@ export function Hero() {
 
   useGSAP(
     () => {
-      const reduce = window.matchMedia(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-      if (reduce) return;
-
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
-      tl.from(".hero-brand", { y: 28, opacity: 0, duration: 0.7 })
-        .from(".hero-line", { y: 36, opacity: 0, duration: 0.75 }, "-=0.35")
-        .from(".hero-sub", { y: 20, opacity: 0, duration: 0.55 }, "-=0.4")
-        .from(".hero-cta", { y: 16, opacity: 0, duration: 0.5 }, "-=0.3")
+      tl.from(".hero-brand", { y: 24, opacity: 0, duration: 0.65 })
+        .from(".hero-line", { y: 28, opacity: 0, duration: 0.7 }, "-=0.35")
+        .from(".hero-sub", { y: 16, opacity: 0, duration: 0.5 }, "-=0.4")
+        .from(".hero-cta", { y: 12, opacity: 0, duration: 0.45 }, "-=0.28")
         .from(
           ".radar-ring",
-          { scale: 0.7, opacity: 0, stagger: 0.12, duration: 0.9 },
-          "-=0.8",
+          { scale: 0.75, opacity: 0, stagger: 0.1, duration: 0.85 },
+          "-=0.7",
         );
-
       gsap.to(".radar-ring", {
-        scale: 1.06,
-        opacity: 0.35,
-        duration: 2.4,
-        stagger: 0.35,
+        scale: 1.05,
+        opacity: 0.4,
+        duration: 2.6,
+        stagger: 0.3,
         yoyo: true,
         repeat: -1,
         ease: "sine.inOut",
@@ -50,60 +45,48 @@ export function Hero() {
       <div className="topo-lines absolute inset-0" aria-hidden />
 
       <div
-        className="pointer-events-none absolute inset-y-[12%] right-[-8%] flex w-[min(58vw,640px)] items-center justify-center max-md:opacity-40"
+        className="pointer-events-none absolute inset-y-[10%] right-[-6%] hidden w-[min(52vw,560px)] items-center justify-center md:flex"
         aria-hidden
       >
-        <div className="radar-ring absolute h-[38%] w-[38%] rounded-full border border-[rgba(11,58,44,0.35)]" />
-        <div className="radar-ring absolute h-[58%] w-[58%] rounded-full border border-[rgba(11,58,44,0.28)]" />
-        <div className="radar-ring absolute h-[78%] w-[78%] rounded-full border border-[rgba(11,58,44,0.2)]" />
-        <div className="absolute h-3 w-3 rounded-full bg-[var(--signal)] shadow-[0_0_0_10px_rgba(200,240,60,0.25)]" />
+        <div className="radar-ring absolute h-[36%] w-[36%] rounded-full border border-primary/30" />
+        <div className="radar-ring absolute h-[56%] w-[56%] rounded-full border border-primary/22" />
+        <div className="radar-ring absolute h-[76%] w-[76%] rounded-full border border-primary/15" />
+        <div className="absolute size-3 rounded-full bg-accent shadow-[0_0_0_10px_rgba(200,240,60,0.22)]" />
       </div>
 
-      <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-6xl flex-col px-6 pb-16 pt-8 md:px-10">
-        <nav className="flex items-center justify-between gap-4">
-          <span className="hero-brand font-[family-name:var(--font-display)] text-sm font-bold tracking-[0.18em] text-[var(--deep)]">
+      <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-6xl flex-col px-4 pb-14 pt-6 sm:px-6">
+        <div className="flex items-center justify-between gap-4">
+          <p className="hero-brand font-[family-name:var(--font-display)] text-[13px] font-bold tracking-[0.2em] text-primary">
             SIGNAL SCOUT
-          </span>
-          <div className="flex items-center gap-4 text-sm font-medium text-[var(--ink-soft)]">
-            <Link
-              href="/scout"
-              className="underline-offset-4 hover:text-[var(--ink)] hover:underline"
-            >
-              Scout a company
-            </Link>
-            <Link
-              href="/watchlist"
-              className="underline-offset-4 hover:text-[var(--ink)] hover:underline"
-            >
+          </p>
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <ButtonLink href="/watchlist" variant="ghost" size="sm">
               Watchlist
-            </Link>
+            </ButtonLink>
+            <ButtonLink href="/scout" size="sm">
+              Scout
+            </ButtonLink>
           </div>
-        </nav>
+        </div>
 
-        <div className="mt-auto max-w-xl pb-[12vh] pt-24 md:max-w-2xl">
-          <p className="hero-brand mb-5 font-[family-name:var(--font-display)] text-4xl font-extrabold leading-none tracking-tight text-[var(--deep)] md:text-6xl lg:text-7xl">
+        <div className="mt-auto max-w-xl pb-[10vh] pt-28 md:max-w-2xl">
+          <h1 className="hero-brand font-[family-name:var(--font-display)] text-5xl font-extrabold leading-[0.95] tracking-tight text-primary md:text-7xl">
             Signal Scout
-          </p>
-          <h1 className="hero-line font-[family-name:var(--font-display)] text-2xl font-semibold leading-tight tracking-tight text-[var(--ink)] md:text-4xl">
-            Only reach out when something real happened this week.
           </h1>
-          <p className="hero-sub mt-5 max-w-md text-base leading-relaxed text-[var(--ink-soft)] md:text-lg">
-            Trigger EC2 for any SaaS company, pull a cited draft, send from your
-            own inbox when you&apos;re ready.
+          <p className="hero-line mt-6 font-[family-name:var(--font-display)] text-2xl font-semibold leading-snug tracking-tight text-foreground md:text-3xl">
+            Reach out only when something real happened this week.
           </p>
-          <div className="hero-cta mt-9 flex flex-wrap items-center gap-4">
-            <Link
-              href="/scout"
-              className="inline-flex items-center bg-[var(--deep)] px-6 py-3.5 text-sm font-semibold tracking-wide text-[var(--signal)] transition hover:bg-[var(--ink)]"
-            >
+          <p className="hero-sub mt-4 max-w-md text-base leading-relaxed text-muted-foreground md:text-lg">
+            Funding, hiring surges, and exec moves — drafted from evidence. You
+            choose the contact and send.
+          </p>
+          <div className="hero-cta mt-9 flex flex-wrap items-center gap-3">
+            <ButtonLink href="/scout" size="lg" className="px-5">
               Scout a company
-            </Link>
-            <Link
-              href="/watchlist"
-              className="text-sm font-medium text-[var(--ink-soft)] underline-offset-4 hover:underline"
-            >
-              See this week&apos;s watchlist
-            </Link>
+            </ButtonLink>
+            <ButtonLink href="/watchlist" variant="outline" size="lg" className="px-5">
+              This week&apos;s watchlist
+            </ButtonLink>
           </div>
         </div>
       </div>
