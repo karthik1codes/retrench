@@ -74,11 +74,20 @@ function formatWhen(value?: string | null) {
   });
 }
 
+function companyWebsite(domain?: string | null) {
+  if (!domain) return null;
+  const host = domain.replace(/^https?:\/\//i, "").split("/")[0];
+  if (!host) return null;
+  return {
+    host,
+    href: `https://${host}`,
+  };
+}
+
 function companyFacts(c?: MatchedCompany | null) {
   if (!c) return [];
   const facts: string[] = [];
   if (c.industry) facts.push(c.industry);
-  else facts.push("Industry unknown");
   if (c.funding_stage) {
     facts.push(
       c.last_funding_amount
@@ -99,6 +108,45 @@ function companyFacts(c?: MatchedCompany | null) {
   }
   if (c.country) facts.push(c.country);
   return facts;
+}
+
+function overviewRows(c?: MatchedCompany | null) {
+  if (!c) return [] as { label: string; value: string }[];
+  const rows: { label: string; value: string }[] = [];
+  if (c.industry) rows.push({ label: "Industry", value: c.industry });
+  if (c.funding_stage || c.last_funding_amount) {
+    rows.push({
+      label: "Funding",
+      value: [c.funding_stage, c.last_funding_amount, c.last_funding_date]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }
+  if (c.headcount != null && c.headcount !== "") {
+    const growth =
+      typeof c.headcount_growth_30d_pct === "number"
+        ? ` (${c.headcount_growth_30d_pct > 0 ? "+" : ""}${c.headcount_growth_30d_pct}% / 30d)`
+        : "";
+    rows.push({ label: "Headcount", value: `${c.headcount}${growth}` });
+  } else if (c.employee_range) {
+    rows.push({ label: "Size", value: String(c.employee_range) });
+  }
+  if (c.country) rows.push({ label: "HQ", value: c.country });
+  return rows;
+}
+
+function parseSignalText(summary?: string | null, implication?: string | null) {
+  let trigger = (summary || "").trim();
+  let why = (implication || "").trim();
+  const marker = /\|?\s*Why it matters:\s*/i;
+  if (!why && marker.test(trigger)) {
+    const parts = trigger.split(marker);
+    trigger = (parts[0] || "").trim();
+    why = (parts[1] || "").trim();
+  }
+  // Drop "Company (domain):" prefix noise for display when redundant
+  trigger = trigger.replace(/^[^:]+\([^)]+\):\s*/i, "").trim() || trigger;
+  return { trigger, why };
 }
 
 function monthLabel(ym?: string | null) {
@@ -399,13 +447,17 @@ export function ScoutStudio() {
     });
   }
 
-  const facts = companyFacts(matched || context?.company);
+  const company = matched || context?.company || null;
+  const facts = companyFacts(company);
+  const rows = overviewRows(company);
+  const site = companyWebsite(company?.domain || query.trim());
   const scouted: ScoutedContent | undefined = context?.scouted;
   const signalContext = context?.signals?.length
     ? context.signals
     : items.map((i) => ({
         type: i.type || i.state,
         summary: i.summary,
+        implication: undefined as string | undefined,
         severity: i.severity,
         state: i.state,
         detected_at: i.detected_at,
@@ -413,6 +465,12 @@ export function ScoutStudio() {
         confidence: i.confidence,
       }));
   const thisMonth = monthLabel(context?.month);
+  const companyTitle = (() => {
+    const n = company?.name || query.trim();
+    return n && String(n).toLowerCase() !== "none"
+      ? n
+      : site?.host || "Matched company";
+  })();
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 md:py-8">
@@ -467,67 +525,61 @@ export function ScoutStudio() {
           {(matched || context) && (
             <Card className="shadow-none">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">
-                  {(() => {
-                    const n =
-                      matched?.name || context?.company?.name || query.trim();
-                    return n && String(n).toLowerCase() !== "none"
-                      ? n
-                      : matched?.domain || query.trim() || "Matched company";
-                  })()}
-                </CardTitle>
+                <CardTitle className="text-base">{companyTitle}</CardTitle>
                 <CardDescription>
-                  {[
-                    matched?.domain || context?.company?.domain,
-                    context?.note,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "Live data from the scout agent"}
+                  {context?.note || "Live company overview from this scout"}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {facts.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {facts.map((f) => (
-                      <Badge key={f} variant="secondary">
-                        {f}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : null}
-
-                <div>
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Scouted content
+              <CardContent className="space-y-5">
+                <div className="space-y-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Company overview
                   </p>
-                  {matched?.description || context?.company?.description ? (
-                    <p className="mb-2 text-sm leading-relaxed text-foreground/90">
-                      {matched?.description || context?.company?.description}
+                  {site ? (
+                    <a
+                      href={site.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      {site.host}
+                    </a>
+                  ) : null}
+                  {company?.description ? (
+                    <p className="text-sm leading-relaxed text-foreground/90">
+                      {company.description}
                     </p>
                   ) : null}
-                  {scouted?.highlights?.length ? (
-                    <ul className="space-y-1.5 text-sm text-muted-foreground">
-                      {scouted.highlights
-                        .filter(
-                          (line) =>
-                            !/matched none/i.test(line) &&
-                            String(line).toLowerCase() !== "none",
-                        )
-                        .map((line) => (
-                          <li
-                            key={line}
-                            className="rounded-md border border-border/70 px-3 py-2 text-foreground/90"
-                          >
-                            {line}
-                          </li>
-                        ))}
-                    </ul>
+                  {rows.length > 0 ? (
+                    <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                      {rows.map((row) => (
+                        <div key={row.label} className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">
+                            {row.label}
+                          </dt>
+                          <dd className="truncate font-medium">{row.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : facts.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {facts.map((f) => (
+                        <Badge key={f} variant="secondary">
+                          {f}
+                        </Badge>
+                      ))}
+                    </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      Company matched and saved. Open details appear as the
-                      agent returns funding, headcount, and field data.
+                      Profile saved. More fields appear when CrustData returns
+                      industry, funding, or headcount.
                     </p>
                   )}
+                  {scouted?.fetched_at ? (
+                    <p className="text-xs text-muted-foreground">
+                      Fetched {formatWhen(scouted.fetched_at)}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
@@ -537,7 +589,7 @@ export function ScoutStudio() {
                         context?.signals_in_graph ??
                         items.length}
                     </p>
-                    <p className="text-muted-foreground">This month</p>
+                    <p className="text-muted-foreground">Recent</p>
                   </div>
                   <div className="rounded-lg border border-border px-2 py-2">
                     <p className="text-lg font-semibold tabular-nums">
@@ -559,40 +611,55 @@ export function ScoutStudio() {
                     Recent signals · {thisMonth}
                   </p>
                   {signalContext.length > 0 ? (
-                    <ul className="space-y-2">
-                      {signalContext.slice(0, 8).map((s, idx) => (
-                        <li
-                          key={`${s.type}-${idx}-${s.summary?.slice(0, 24)}`}
-                          className="rounded-lg border border-border px-3 py-2 text-left"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                              {s.type || "signal"}
-                            </span>
-                            {s.severity != null ? (
-                              <Badge variant="outline">{s.severity}</Badge>
+                    <ul className="space-y-3">
+                      {signalContext.slice(0, 8).map((s, idx) => {
+                        const parsed = parseSignalText(
+                          s.summary,
+                          s.implication,
+                        );
+                        return (
+                          <li
+                            key={`${s.type}-${idx}-${parsed.trigger.slice(0, 24)}`}
+                            className="rounded-lg border border-border px-3 py-3 text-left"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                {(s.type || "signal").replace(/_/g, " ")}
+                              </span>
+                              {s.severity != null ? (
+                                <Badge variant="outline">{s.severity}</Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-2 text-sm font-medium leading-snug">
+                              {parsed.trigger || "Signal detected"}
+                            </p>
+                            {parsed.why ? (
+                              <div className="mt-2 rounded-md bg-secondary/40 px-3 py-2">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Why it matters
+                                </p>
+                                <p className="mt-1 text-sm leading-relaxed text-foreground/90">
+                                  {parsed.why}
+                                </p>
+                              </div>
                             ) : null}
-                          </div>
-                          <p className="mt-1 text-sm leading-snug">
-                            {s.summary || "No summary"}
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {[
-                              s.state,
-                              s.has_draft ? "draft ready" : null,
-                              formatWhen(s.detected_at),
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
-                        </li>
-                      ))}
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              {[
+                                s.state,
+                                s.has_draft ? "draft ready" : null,
+                                formatWhen(s.detected_at),
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          </li>
+                        );
+                      })}
                     </ul>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      No recent signals for this company yet. Run scout again
-                      after the agent stores a profile signal — a draft should
-                      appear in the workspace when qualification succeeds.
+                      No recent signals for this company yet. Run scout again —
+                      a draft appears in the workspace when a signal qualifies.
                     </p>
                   )}
                 </div>

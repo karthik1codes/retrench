@@ -44,16 +44,14 @@ class ResearchAgent:
             if severity < self.cfg.archive_below_severity:
                 self.graph.set_signal_state(sig["id"], "archived", severity)
             else:
-                # store implication on summary append
                 self.graph.set_signal_state(sig["id"], "qualified", severity)
                 qualified.append(sig["id"])
-                # keep implication in summary via Cypher-less append using set through create path
-                # update summary
+                # Keep trigger summary clean; store implication separately for UI
                 with self.graph._driver.session() as session:
                     session.run(
                         """
                         MATCH (s:Signal {id: $id})
-                        SET s.summary = coalesce(s.summary, '') + ' | Why it matters: ' + $imp
+                        SET s.implication = $imp
                         """,
                         id=sig["id"],
                         imp=implication[:280],

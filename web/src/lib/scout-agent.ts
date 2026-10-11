@@ -23,6 +23,7 @@ export type MatchedCompany = {
 export type ScoutSignalContext = {
   type?: string;
   summary?: string;
+  implication?: string | null;
   severity?: number;
   state?: string;
   detected_at?: string | null;

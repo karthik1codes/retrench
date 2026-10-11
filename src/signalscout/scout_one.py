@@ -209,7 +209,14 @@ def scout_company(
             items = drafts_for_company(str(lookup), month="current")
     except Exception:  # noqa: BLE001
         items = []
-    result["items"] = items
+    formatted_items: list[dict[str, Any]] = []
+    for i in items:
+        row = dict(i)
+        raw_summary = row.get("summary")
+        row["implication"] = row.get("implication") or _extract_implication(raw_summary)
+        row["summary"] = _clean_signal_summary(raw_summary)
+        formatted_items.append(row)
+    result["items"] = formatted_items
     created = result.get("created_signals") or []
     drafts = result.get("drafts") or []
     result["context"] = {
@@ -218,23 +225,50 @@ def scout_company(
         "month": month,
         "signals_created": len(created),
         "drafts_created": len(drafts),
-        "signals_this_month": len(items),
-        "signals_in_graph": len(items),
-        "note": _context_note(company_ctx, len(created), len(items), len(drafts), month),
+        "signals_this_month": len(formatted_items),
+        "signals_in_graph": len(formatted_items),
+        "note": _context_note(
+            company_ctx, len(created), len(formatted_items), len(drafts), month
+        ),
         "signals": [
             {
                 "type": i.get("type") or i.get("state") or "signal",
                 "summary": i.get("summary"),
+                "implication": i.get("implication"),
                 "severity": i.get("severity"),
                 "state": i.get("state"),
                 "detected_at": i.get("detected_at"),
                 "has_draft": bool(i.get("draft_body")),
                 "confidence": i.get("confidence"),
             }
-            for i in items
+            for i in formatted_items
         ],
     }
     return result
+
+
+def _extract_implication(summary: Any) -> str | None:
+    if not summary:
+        return None
+    text = str(summary)
+    marker = "Why it matters:"
+    if marker.lower() in text.lower():
+        idx = text.lower().index(marker.lower())
+        return text[idx + len(marker) :].strip(" |") or None
+    return None
+
+
+def _clean_signal_summary(summary: Any) -> str | None:
+    if not summary:
+        return None
+    text = str(summary)
+    idx = text.lower().find(" | why it matters:")
+    if idx >= 0:
+        return text[:idx].strip()
+    idx2 = text.lower().find("why it matters:")
+    if idx2 > 0:
+        return text[:idx2].strip(" |")
+    return text.strip()
 
 
 def _context_note(

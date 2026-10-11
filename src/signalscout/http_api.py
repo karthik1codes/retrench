@@ -80,6 +80,7 @@ def drafts_for_company(
                        s.id AS signal_id,
                        coalesce(s.type, 'signal') AS type,
                        s.summary AS summary,
+                       s.implication AS implication,
                        s.severity AS severity, s.state AS state,
                        s.detected_at AS detected_at,
                        d.id AS draft_id, d.body AS draft_body,
