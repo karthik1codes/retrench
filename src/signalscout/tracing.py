@@ -19,7 +19,9 @@ def neatlogs_session(workflow: str = "signal-scout") -> Iterator[Any]:
 
     neatlogs.init(
         api_key=api_key,
-        endpoint=os.environ.get("NEATLOGS_INGEST_ENDPOINT", "https://ingest.neatlogs.com"),
+        endpoint=os.environ.get(
+            "NEATLOGS_INGEST_ENDPOINT", "https://ingest.neatlogs.com"
+        ),
         workflow_name=workflow,
     )
     try:
@@ -45,7 +47,6 @@ def llm_complete(
     meta = metadata or {}
 
     if not openrouter_key:
-        # deterministic stub for tests / dry environments
         return (
             f"[stub draft] Reaching out about {meta.get('company', 'your company')}: "
             f"{meta.get('summary', user[:120])}. Happy to share how peers handled this."
@@ -54,7 +55,12 @@ def llm_complete(
     with neatlogs_session() as nl:
         from openrouter import OpenRouter
 
-        client = nl.wrap(OpenRouter(api_key=openrouter_key)) if nl else OpenRouter(api_key=openrouter_key)
+        client = (
+            nl.wrap(OpenRouter(api_key=openrouter_key))
+            if nl
+            else OpenRouter(api_key=openrouter_key)
+        )
+        agent_name = str(meta.get("agent", "llm"))
 
         def _call() -> str:
             resp = client.chat.send(
@@ -68,13 +74,11 @@ def llm_complete(
             )
             return resp.choices[0].message.content or ""
 
+        # neatlogs.span is a decorator, not a context manager
         if nl:
-            # neatlogs valid kinds: AGENT, CHAIN, TOOL, WORKFLOW, ... (not "LLM")
-            span = nl.span(kind="AGENT", name=str(meta.get("agent", "llm")))
-            with span:
-                try:
-                    span.set_attributes(meta)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
+            @nl.span(kind="AGENT", name=agent_name)
+            def _traced() -> str:
                 return _call()
+
+            return _traced()
         return _call()
