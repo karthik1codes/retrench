@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { DEMO_SIGNALS, SEGMENT } from "../../../data/signals";
+import { fetchLiveWatchlist } from "@/lib/overview";
 
-/** Product API — demo fixtures today; swap for Neo4j / digest files on EC2. */
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 export async function GET() {
-  return NextResponse.json({
-    segment: SEGMENT,
-    generated_at: new Date().toISOString(),
-    signals: DEMO_SIGNALS,
-  });
+  const data = await fetchLiveWatchlist();
+  const code = data.status === "failed" ? 502 : 200;
+  return NextResponse.json(data, { status: code });
 }

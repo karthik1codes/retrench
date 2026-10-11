@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
-import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button-link";
 import {
@@ -41,19 +40,32 @@ export function Watchlist({ signals }: { signals: SignalItem[] }) {
     { scope: root, dependencies: [signals.length] },
   );
 
+  if (!signals.length) {
+    return (
+      <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
+        <h1 className="text-3xl font-semibold tracking-tight">Watchlist</h1>
+        <p className="mt-3 text-sm text-muted-foreground">
+          No live signals yet. Run a scout to populate this list.
+        </p>
+        <ButtonLink href="/scout" className="mt-6">
+          Scout a company
+        </ButtonLink>
+      </div>
+    );
+  }
+
   return (
-    <AppShell>
-      <div ref={root} className="mx-auto max-w-6xl px-4 py-10 sm:px-6 md:py-14">
+      <div ref={root} className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 md:py-8">
         <div className="mb-10 max-w-2xl">
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
             Weekly watchlist
           </p>
-          <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold tracking-tight md:text-4xl">
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
             Who to reach this week
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground md:text-base">
             Segment: {SEGMENT}. Open a company, review the draft, or run a fresh
-            scout on EC2.
+            scout.
           </p>
         </div>
 
@@ -74,7 +86,7 @@ export function Watchlist({ signals }: { signals: SignalItem[] }) {
                     )}
                   >
                     <div className="flex items-baseline justify-between gap-3">
-                      <span className="font-[family-name:var(--font-display)] text-lg font-semibold">
+                      <span className="font-heading text-lg font-semibold">
                         {s.company}
                       </span>
                       <Badge variant="secondary">{s.severity}</Badge>
@@ -98,7 +110,7 @@ export function Watchlist({ signals }: { signals: SignalItem[] }) {
               <Card className="shadow-none">
                 <CardHeader>
                   <CardDescription>{current.domain}</CardDescription>
-                  <CardTitle className="font-[family-name:var(--font-display)] text-2xl">
+                  <CardTitle className="font-heading text-2xl">
                     {current.company}
                   </CardTitle>
                 </CardHeader>
@@ -116,7 +128,7 @@ export function Watchlist({ signals }: { signals: SignalItem[] }) {
                         Draft · not sent
                       </p>
                       <p className="font-medium">{current.draft.subject}</p>
-                      <pre className="whitespace-pre-wrap font-[family-name:var(--font-body)] text-sm leading-relaxed text-muted-foreground">
+                      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-muted-foreground">
                         {current.draft.body}
                       </pre>
                       <ButtonLink
@@ -139,6 +151,5 @@ export function Watchlist({ signals }: { signals: SignalItem[] }) {
           </aside>
         </div>
       </div>
-    </AppShell>
   );
 }
