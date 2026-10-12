@@ -65,12 +65,19 @@ export async function fetchTargets(): Promise<TargetsPayload> {
     return emptyTargets("SCOUT_AGENT_URL is not configured");
   }
   try {
-    const res = await fetch(`${AGENT}/targets?days=7`, {
-      headers: headers(),
-      cache: "no-store",
-      // Fail fast so Scout UI does not hang ~10–60s when EC2 is down
-      signal: AbortSignal.timeout(8_000),
-    });
+    const res = await fetch(
+      `${AGENT}/targets?days=7&_=${Date.now()}`,
+      {
+        headers: {
+          ...headers(),
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+        cache: "no-store",
+        // Fail fast so Scout UI does not hang ~10–60s when EC2 is down
+        signal: AbortSignal.timeout(12_000),
+      },
+    );
     const data = (await res.json()) as TargetsPayload;
     if (!res.ok) {
       return emptyTargets(data.error || `agent HTTP ${res.status}`);

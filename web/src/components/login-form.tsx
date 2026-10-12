@@ -55,7 +55,13 @@ export function LoginForm({
                 type="button"
                 className="w-full"
                 disabled={!googleConfigured}
-                onClick={() => void signIn("google", { callbackUrl: "/scout" })}
+                onClick={() =>
+                  void signIn(
+                    "google",
+                    { callbackUrl: "/scout" },
+                    { prompt: "consent", access_type: "offline" },
+                  )
+                }
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                   <path

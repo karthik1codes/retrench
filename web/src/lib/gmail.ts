@@ -1,4 +1,5 @@
-import { getToken } from "next-auth/jwt";
+import { cookies } from "next/headers";
+import { getToken, decode } from "next-auth/jwt";
 import type { NextRequest } from "next/server";
 
 const googleId = process.env.AUTH_GOOGLE_ID?.trim();
@@ -8,7 +9,20 @@ type TokenBag = {
   accessToken?: string;
   refreshToken?: string;
   expiresAt?: number;
+  gmailScopes?: string;
 };
+
+/** Auth.js v5 salts JWTs with the session cookie name. */
+function sessionCookieNames(): string[] {
+  const https =
+    process.env.AUTH_URL?.startsWith("https://") ||
+    process.env.VERCEL === "1" ||
+    process.env.NODE_ENV === "production";
+  // Prefer the secure name in prod, but try both (local https / preview quirks).
+  return https
+    ? ["__Secure-authjs.session-token", "authjs.session-token"]
+    : ["authjs.session-token", "__Secure-authjs.session-token"];
+}
 
 async function refresh(token: TokenBag): Promise<TokenBag | null> {
   if (!token.refreshToken || !googleId || !googleSecret) return null;
@@ -26,38 +40,84 @@ async function refresh(token: TokenBag): Promise<TokenBag | null> {
     access_token?: string;
     expires_in?: number;
     refresh_token?: string;
+    scope?: string;
   };
   if (!res.ok || !data.access_token) return null;
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token || token.refreshToken,
     expiresAt: Math.floor(Date.now() / 1000) + (data.expires_in ?? 3600),
+    gmailScopes: data.scope || token.gmailScopes,
   };
 }
 
-export async function resolveGmailAccessToken(
-  req: NextRequest,
-): Promise<string | null> {
-  const token = await getToken({
-    req,
-    secret: process.env.AUTH_SECRET,
-  });
+function asTokenBag(token: Record<string, unknown> | null): TokenBag | null {
   if (!token) return null;
+  return {
+    accessToken: token.accessToken as string | undefined,
+    refreshToken: token.refreshToken as string | undefined,
+    expiresAt: token.expiresAt as number | undefined,
+    gmailScopes: token.gmailScopes as string | undefined,
+  };
+}
 
-  const accessToken = token.accessToken as string | undefined;
-  const refreshToken = token.refreshToken as string | undefined;
-  const expiresAt = token.expiresAt as number | undefined;
+async function readJwtFromRequest(req: NextRequest): Promise<TokenBag | null> {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return null;
+
+  for (const cookieName of sessionCookieNames()) {
+    const token = await getToken({
+      req,
+      secret,
+      cookieName,
+      salt: cookieName,
+    });
+    const bag = asTokenBag(token as Record<string, unknown> | null);
+    if (bag?.accessToken || bag?.refreshToken) return bag;
+  }
+  return null;
+}
+
+async function readJwtFromCookies(): Promise<TokenBag | null> {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return null;
+  const jar = await cookies();
+
+  for (const cookieName of sessionCookieNames()) {
+    const raw = jar.get(cookieName)?.value;
+    if (!raw) continue;
+    try {
+      const decoded = await decode({
+        token: raw,
+        secret,
+        salt: cookieName,
+      });
+      const bag = asTokenBag(decoded as Record<string, unknown> | null);
+      if (bag?.accessToken || bag?.refreshToken) return bag;
+    } catch {
+      // try next cookie name
+    }
+  }
+  return null;
+}
+
+export async function resolveGmailAccessToken(
+  req?: NextRequest,
+): Promise<string | null> {
+  let bag = req ? await readJwtFromRequest(req) : null;
+  if (!bag) bag = await readJwtFromCookies();
+  if (!bag) return null;
 
   if (
-    accessToken &&
-    expiresAt &&
-    Date.now() / 1000 < expiresAt - 60
+    bag.accessToken &&
+    bag.expiresAt &&
+    Date.now() / 1000 < bag.expiresAt - 60
   ) {
-    return accessToken;
+    return bag.accessToken;
   }
 
-  const refreshed = await refresh({ accessToken, refreshToken, expiresAt });
-  return refreshed?.accessToken || accessToken || null;
+  const refreshed = await refresh(bag);
+  return refreshed?.accessToken || bag.accessToken || null;
 }
 
 function encodeRawMessage(opts: {

@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { toast } from "sonner";
-import { useSession } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,7 +52,7 @@ import {
 } from "@/lib/mail-compose";
 import { cn } from "@/lib/utils";
 
-const HOUR_MS = 60 * 60 * 1000;
+const TARGETS_POLL_MS = 5 * 60 * 1000;
 
 function polishDraftText(text: string) {
   return text.replace(
@@ -474,10 +474,16 @@ export function ScoutStudio() {
     );
   }
 
-  const loadTargets = useCallback(async () => {
+  const loadTargets = useCallback(async (opts?: { notify?: boolean }) => {
     setTargetsLoading(true);
     try {
-      const res = await fetch("/api/targets", { cache: "no-store" });
+      const res = await fetch(`/api/targets?_=${Date.now()}`, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
       const data = await res.json();
       const unavailable =
         !res.ok ||
@@ -491,6 +497,9 @@ export function ScoutStudio() {
         });
         setCategories([]);
         setTargetCompanies([]);
+        if (opts?.notify) {
+          toast.error(data.error || "Could not refresh This week");
+        }
         return;
       }
       const flatRaw: TargetCompany[] = Array.isArray(data.companies)
@@ -513,7 +522,7 @@ export function ScoutStudio() {
         total: flat.length,
         windowDays: data.window_days || 7,
         lastRunAt: data.last_run_at,
-        generatedAt: data.generated_at,
+        generatedAt: data.generated_at || new Date().toISOString(),
         error: flat.length === 0 ? data.error : undefined,
       });
       setActiveIndustry((prev) => {
@@ -523,10 +532,20 @@ export function ScoutStudio() {
         );
         return industries.has(normalizeIndustry(prev)) ? prev : "all";
       });
+      if (opts?.notify) {
+        toast.success(
+          flat.length
+            ? `This week updated · ${flat.length} compan${flat.length === 1 ? "y" : "ies"}`
+            : "This week refreshed · no draft companies yet",
+        );
+      }
     } catch {
       setTargetsMeta({ total: 0, error: "Targets unavailable" });
       setCategories([]);
       setTargetCompanies([]);
+      if (opts?.notify) {
+        toast.error("Could not refresh This week");
+      }
     } finally {
       setTargetsLoading(false);
     }
@@ -534,8 +553,26 @@ export function ScoutStudio() {
 
   useEffect(() => {
     void loadTargets();
-    const id = window.setInterval(() => void loadTargets(), HOUR_MS);
-    return () => window.clearInterval(id);
+    const poll = window.setInterval(() => void loadTargets(), TARGETS_POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadTargets();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      // bfcache restore + normal show — always refetch companies
+      if (e.persisted || document.visibilityState === "visible") {
+        void loadTargets();
+      }
+    };
+    const onFocus = () => void loadTargets();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [loadTargets]);
 
   useEffect(() => {
@@ -1170,11 +1207,15 @@ export function ScoutStudio() {
                     <CardTitle>This week</CardTitle>
                     <CardDescription className="truncate">
                       {targetsLoading
-                        ? "Loading fetched companies…"
+                        ? "Fetching latest companies…"
                         : targetsMeta.error && targetsMeta.total === 0
                           ? targetsMeta.error
                           : targetsMeta.total > 0
-                            ? `${targetsMeta.total} with drafts · last ${targetsMeta.windowDays || 7}d`
+                            ? `${targetsMeta.total} with drafts · last ${targetsMeta.windowDays || 7}d${
+                                targetsMeta.generatedAt
+                                  ? ` · ${formatWhen(targetsMeta.generatedAt)}`
+                                  : ""
+                              }`
                             : "No draft companies this week yet"}
                     </CardDescription>
                   </div>
@@ -1182,9 +1223,9 @@ export function ScoutStudio() {
                     size="xs"
                     variant="outline"
                     disabled={targetsLoading}
-                    onClick={() => void loadTargets()}
+                    onClick={() => void loadTargets({ notify: true })}
                   >
-                    Refresh
+                    {targetsLoading ? "Updating…" : "Refresh"}
                   </Button>
                 </div>
               </CardHeader>
@@ -1300,7 +1341,7 @@ export function ScoutStudio() {
                       size="sm"
                       variant="outline"
                       className="w-fit"
-                      onClick={() => void loadTargets()}
+                      onClick={() => void loadTargets({ notify: true })}
                     >
                       Retry fetch
                     </Button>
@@ -1666,15 +1707,32 @@ export function ScoutStudio() {
                           Save as sent
                         </Button>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Signed in as {session?.user?.email || "…"}.
-                        {prefs.sendMode === "agent"
-                          ? " Agent send uses Gmail API after Approve, then queues +3d / +7d follow-ups."
-                          : " Open in Gmail stores under Sent, polls Gmail Sent to confirm, and queues follow-ups for you."}
-                        {!session?.gmailConnected
-                          ? " Reconnect Google if verify/send fails."
-                          : ""}
-                      </p>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          Signed in as {session?.user?.email || "…"}.
+                          {prefs.sendMode === "agent"
+                            ? " Agent send uses Gmail API after Approve, then queues +3d / +7d follow-ups."
+                            : " Open in Gmail stores under Sent, polls Gmail Sent to confirm, and queues follow-ups for you."}
+                          {!session?.gmailConnected
+                            ? " Gmail scopes missing — reconnect Google."
+                            : ""}
+                        </p>
+                        {!session?.gmailConnected ? (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() =>
+                              void signIn(
+                                "google",
+                                { callbackUrl: "/scout" },
+                                { prompt: "consent", access_type: "offline" },
+                              )
+                            }
+                          >
+                            Reconnect Gmail
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
                   </TabsContent>
                 </Tabs>

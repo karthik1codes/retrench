@@ -117,9 +117,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.image = (token.picture as string) || session.user.image;
       }
       const scopes = String(token.gmailScopes || "");
+      const hasGmail =
+        scopes.includes("gmail.readonly") || scopes.includes("gmail.send");
       session.gmailConnected =
-        Boolean(token.accessToken) &&
-        (scopes.includes("gmail.readonly") || scopes.includes("gmail.send")) &&
+        Boolean(token.accessToken || token.refreshToken) &&
+        hasGmail &&
         !token.error;
       session.error = token.error;
       return session;
