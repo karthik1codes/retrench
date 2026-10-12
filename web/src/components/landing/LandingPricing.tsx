@@ -7,7 +7,20 @@ import { ButtonLink } from "@/components/ui/button-link";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-const PLANS = [
+type Plan = {
+  id: string;
+  name: string;
+  blurb: string;
+  monthly: string;
+  annual: string;
+  cta: string;
+  href: string;
+  perks: string[];
+  save?: boolean;
+  featured?: boolean;
+};
+
+const PLANS: Plan[] = [
   {
     id: "hobby",
     name: "Hobby",
@@ -74,7 +87,7 @@ const PLANS = [
       "99.99% uptime target",
     ],
   },
-] as const;
+];
 
 export function LandingPricing() {
   const [billing, setBilling] = useState("annual");

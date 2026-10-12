@@ -134,8 +134,10 @@ const TABS = [
   },
 ] as const;
 
+type FeatureTabId = (typeof TABS)[number]["id"];
+
 export function LandingFeatures() {
-  const [tab, setTab] = useState(TABS[0].id);
+  const [tab, setTab] = useState<FeatureTabId>(TABS[0].id);
   const active = TABS.find((t) => t.id === tab) || TABS[0];
 
   return (
@@ -151,7 +153,9 @@ export function LandingFeatures() {
         <Tabs
           value={tab}
           onValueChange={(v) => {
-            if (v) setTab(String(v));
+            if (v && TABS.some((t) => t.id === v)) {
+              setTab(v as FeatureTabId);
+            }
           }}
           className="mt-12 gap-8"
         >

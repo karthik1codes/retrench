@@ -16,12 +16,17 @@ import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button-link";
 import { cn } from "@/lib/utils";
 
-const NAV = [
+const NAV: {
+  label: string;
+  icon: typeof SearchIcon;
+  active?: boolean;
+  count?: number;
+}[] = [
   { label: "Scout", icon: SearchIcon, active: true },
   { label: "Watchlist", icon: Building2Icon },
   { label: "Drafts", icon: FileTextIcon, count: 3 },
   { label: "Signals", icon: ActivityIcon },
-] as const;
+];
 
 const TARGETS = [
   {
@@ -150,7 +155,7 @@ export function LandingHero() {
                         >
                           <item.icon className="size-3.5" />
                           <span className="flex-1">{item.label}</span>
-                          {"count" in item && item.count ? (
+                          {item.count ? (
                             <Badge variant="secondary">{item.count}</Badge>
                           ) : null}
                         </div>
