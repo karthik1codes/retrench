@@ -1,4 +1,13 @@
 {
-  "checkpoints": [],
+  "checkpoints": [
+    {
+      "id": "01M4RGD4K55QA6KR3Z4TGY7YF8",
+      "commit": "34ef9b0",
+      "summary": "Landing page: CrustData / neatlogs / Entire / cfo.ai stack strip; removed filler sections",
+      "session": "b8077429-85b1-4cd2-8746-36ae808d983a",
+      "agent": "cursor",
+      "at": "2026-10-12T22:21:00+05:30"
+    }
+  ],
   "notes": "Append Entire checkpoint IDs after each improvement loop."
 }
