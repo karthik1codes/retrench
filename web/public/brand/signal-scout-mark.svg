@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Signal Scout">
+  <rect width="512" height="512" rx="112" fill="#E11D48"/>
+  <!-- White satellite dish + signal arcs (same composition as brand icon) -->
+  <g fill="#FFFFFF">
+    <!-- Pedestal / stand -->
+    <path d="M232 392c8-20 16-28 24-28s16 8 24 28c-6 12-14 20-24 20s-18-8-24-20z"/>
+    <!-- Dish bowl (upward) -->
+    <path d="M120 340c12-88 66-148 136-148s124 60 136 148c-40-36-86-52-136-52s-96 16-136 52z"/>
+    <!-- Emitter -->
+    <circle cx="256" cy="236" r="16"/>
+  </g>
+  <g fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M208 198c12-22 30-34 48-34s36 12 48 34"/>
+    <path d="M172 164c22-40 52-60 84-60s62 20 84 60"/>
+    <path d="M136 128c32-56 72-84 120-84s88 28 120 84"/>
+  </g>
+</svg>

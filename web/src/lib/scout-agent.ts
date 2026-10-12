@@ -1,6 +1,7 @@
 import { DEMO_SIGNALS } from "@/data/signals";
+import { getScoutAgentUrl } from "@/lib/agent-url";
 
-const AGENT = process.env.SCOUT_AGENT_URL?.replace(/\/$/, "") || "";
+const AGENT = getScoutAgentUrl();
 const TOKEN = process.env.SCOUT_API_TOKEN || "";
 const FALLBACK =
   process.env.SCOUT_FALLBACK_DEMO === "1" ||
@@ -369,6 +370,90 @@ export async function logDraftAction(input: {
       status: "failed",
       logged: false,
       error: e instanceof Error ? e.message : "draft-action failed",
+    };
+  }
+}
+
+function localInboxRewrite(input: {
+  company?: string | null;
+  subject: string;
+  body: string;
+  signal_summary?: string | null;
+}): { subject: string; body: string } {
+  const company = (input.company || "there").trim() || "there";
+  const hook = (
+    input.signal_summary ||
+    input.body.replace(/^Subject:.*$/im, "").trim() ||
+    `what ${company} is building`
+  )
+    .replace(/\b(CrustData|enrichment|scraper|live company profile)\b/gi, "")
+    .trim()
+    .slice(0, 140);
+  const subject = `Quick note on ${company}`.slice(0, 78);
+  const body = [
+    `Hi — noticed ${hook || `a recent update at ${company}`}.`,
+    "",
+    "Curious if a short chat next week would be useful; happy to share how peers approached something similar.",
+    "",
+    "Best",
+  ].join("\n");
+  return { subject, body };
+}
+
+export async function rewriteDraft(input: {
+  company?: string | null;
+  domain?: string | null;
+  subject: string;
+  body: string;
+  signal_summary?: string | null;
+  reason?: string;
+  style_notes?: string[];
+}): Promise<{
+  status: string;
+  subject?: string;
+  body?: string;
+  demo?: boolean;
+  error?: string;
+}> {
+  if (!AGENT) {
+    const local = localInboxRewrite(input);
+    return { status: "ok", demo: true, ...local };
+  }
+  try {
+    const res = await fetch(`${AGENT}/rewrite-draft`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(input),
+      cache: "no-store",
+      signal: AbortSignal.timeout(45_000),
+    });
+    const data = (await readJson(res)) as {
+      status?: string;
+      subject?: string;
+      body?: string;
+      error?: string;
+    };
+    if (!res.ok || !data.body) {
+      const local = localInboxRewrite(input);
+      return {
+        status: "ok",
+        demo: true,
+        ...local,
+        error: data.error || `HTTP ${res.status}`,
+      };
+    }
+    return {
+      status: data.status || "ok",
+      subject: data.subject || input.subject,
+      body: data.body,
+    };
+  } catch (e) {
+    const local = localInboxRewrite(input);
+    return {
+      status: "ok",
+      demo: true,
+      ...local,
+      error: e instanceof Error ? e.message : "rewrite failed",
     };
   }
 }

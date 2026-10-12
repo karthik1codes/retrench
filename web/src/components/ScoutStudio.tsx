@@ -1,11 +1,10 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,19 +16,35 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { CompanyAvatar } from "@/components/CompanyAvatar";
+import { OutreachPermissionDialog } from "@/components/OutreachPermissionDialog";
 import { ScoutFlowStepper } from "@/components/ScoutFlowStepper";
-import { TEST_COMPANIES } from "@/data/test-companies";
+import { useSentDrafts } from "@/hooks/use-sent-drafts";
 import type {
   ContactRow,
   DraftRow,
   MatchedCompany,
   ScoutContext,
-  ScoutedContent,
 } from "@/lib/scout-agent";
 import type { TargetCategory, TargetCompany } from "@/lib/targets";
+import type { SentChannel } from "@/lib/sent-drafts";
+import {
+  rememberApproval,
+  rememberEdit,
+  rememberSpamReject,
+  styleNotesForPrompt,
+} from "@/lib/draft-memory";
+import {
+  loadOutreachPrefs,
+  saveOutreachPrefs,
+  type OutreachPrefs,
+  type SendMode,
+} from "@/lib/outreach-prefs";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   gmailComposeUrl,
   mailtoUrl,
@@ -85,25 +100,6 @@ function companyWebsite(domain?: string | null) {
     host,
     href: `https://${host}`,
   };
-}
-
-function companyLogoSrc(
-  domain?: string | null,
-  logoUrl?: string | null,
-): string | null {
-  if (logoUrl && /^https?:\/\//i.test(logoUrl)) return logoUrl;
-  const host = companyWebsite(domain)?.host;
-  if (!host) return null;
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
-}
-
-function companyInitials(name?: string | null, domain?: string | null) {
-  const source = (name || domain || "?").trim();
-  const parts = source.split(/[\s._-]+/).filter(Boolean);
-  if (parts.length >= 2) {
-    return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
-  }
-  return source.slice(0, 2).toUpperCase();
 }
 
 function companyFacts(c?: MatchedCompany | null) {
@@ -219,6 +215,58 @@ function monthLabel(ym?: string | null) {
   });
 }
 
+function normalizeIndustry(value?: string | null) {
+  const trimmed = (value || "").trim();
+  return trimmed || "Uncategorized";
+}
+
+function companyDedupeKey(company: TargetCompany) {
+  const domain = (company.domain || "").trim().toLowerCase();
+  const name = (company.name || "").trim().toLowerCase();
+  return domain || name || JSON.stringify(company);
+}
+
+/** Prefer the row with the newest draft when the API returns duplicates. */
+function dedupeTargetCompanies(companies: TargetCompany[]): TargetCompany[] {
+  const byKey = new Map<string, TargetCompany>();
+  for (const company of companies) {
+    const key = companyDedupeKey(company);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, company);
+      continue;
+    }
+    const prevAt = prev.last_draft_at || "";
+    const nextAt = company.last_draft_at || "";
+    if (nextAt > prevAt) byKey.set(key, company);
+  }
+  return [...byKey.values()];
+}
+
+function groupTargetsByIndustry(companies: TargetCompany[]): TargetCategory[] {
+  const byIndustry = new Map<string, TargetCompany[]>();
+  for (const company of companies) {
+    const industry = normalizeIndustry(company.industry);
+    const row = { ...company, industry };
+    const bucket = byIndustry.get(industry);
+    if (bucket) bucket.push(row);
+    else byIndustry.set(industry, [row]);
+  }
+  return [...byIndustry.entries()]
+    .map(([industry, rows]) => ({
+      industry,
+      count: rows.length,
+      companies: rows,
+    }))
+    .sort(
+      (a, b) =>
+        b.count - a.count ||
+        a.industry.localeCompare(b.industry, undefined, {
+          sensitivity: "base",
+        }),
+    );
+}
+
 export function ScoutStudio() {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
@@ -235,6 +283,7 @@ export function ScoutStudio() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [categories, setCategories] = useState<TargetCategory[]>([]);
+  const [targetCompanies, setTargetCompanies] = useState<TargetCompany[]>([]);
   const [targetsMeta, setTargetsMeta] = useState<{
     total: number;
     windowDays?: number;
@@ -249,13 +298,51 @@ export function ScoutStudio() {
   const [composeOpened, setComposeOpened] = useState(false);
   const [draftApproved, setDraftApproved] = useState(false);
   const [creditsSpent, setCreditsSpent] = useState<number | null>(null);
+  const [prefs, setPrefs] = useState<OutreachPrefs>(() => loadOutreachPrefs());
+  const [verifying, setVerifying] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [rewriting, setRewriting] = useState(false);
+  const baselineRef = useRef<{ subject: string; body: string }>({
+    subject: "",
+    body: "",
+  });
+  const { markSent, setGmailVerified } = useSentDrafts();
+
+  useEffect(() => {
+    const sync = () => setPrefs(loadOutreachPrefs());
+    sync();
+    window.addEventListener("signal-scout:outreach-prefs", sync);
+    return () =>
+      window.removeEventListener("signal-scout:outreach-prefs", sync);
+  }, []);
 
   async function recordHitl(
     action: "approve" | "edit" | "reject",
     opts?: { silent?: boolean },
   ) {
     setHitlBusy(true);
+    const companyName =
+      selected?.company || matched?.name || query.trim() || undefined;
     try {
+      if (action === "approve") {
+        rememberApproval({ company: companyName, subject, body });
+      } else if (action === "edit") {
+        const before = baselineRef.current;
+        if (
+          before.subject !== subject ||
+          before.body !== body
+        ) {
+          rememberEdit({
+            company: companyName,
+            beforeSubject: before.subject,
+            beforeBody: before.body,
+            afterSubject: subject,
+            afterBody: body,
+          });
+          baselineRef.current = { subject, body };
+        }
+      }
+
       const res = await fetch("/api/draft-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -263,7 +350,7 @@ export function ScoutStudio() {
           action,
           draft_id: selected?.draft_id,
           signal_id: selected?.signal_id,
-          company: selected?.company || matched?.name || query.trim(),
+          company: companyName,
           domain: selected?.domain || matched?.domain || query.trim(),
           subject,
           body,
@@ -274,13 +361,13 @@ export function ScoutStudio() {
         if (data.logged) {
           toast.success(
             action === "approve"
-              ? "Approved — logged to neatlogs"
+              ? "Approved — style learned · logged"
               : action === "reject"
                 ? "Rejected — logged"
-                : "Edit logged",
+                : "Edit logged · style learned",
           );
         } else if (action === "approve") {
-          toast.success("Approved");
+          toast.success("Approved — style learned");
         } else if (action === "reject") {
           toast.message("Rejected");
         }
@@ -292,33 +379,154 @@ export function ScoutStudio() {
     }
   }
 
+  async function pollGmailSent(sentId: string, afterUnix: number) {
+    if (!prefs.verifySent) return;
+    setVerifying(true);
+    const deadline = Date.now() + 90_000;
+    try {
+      while (Date.now() < deadline) {
+        const res = await fetch("/api/gmail/verify-sent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: to.trim(),
+            subject: subject.trim() || "Quick note",
+            afterUnixSeconds: afterUnix,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          toast.message(
+            "Reconnect Google to verify Sent (gmail.readonly).",
+          );
+          return;
+        }
+        if (data.verified && data.match?.id) {
+          setGmailVerified(sentId, data.match);
+          toast.success("Verified in Gmail Sent");
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 4_000));
+      }
+      toast.message("Not in Sent yet — check back after you hit Send in Gmail");
+    } catch {
+      toast.error("Could not poll Gmail Sent");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function rewriteAsInboxSafe() {
+    if (!subject.trim() && !body.trim()) {
+      toast.error("Nothing to rewrite");
+      return;
+    }
+    setRewriting(true);
+    const companyName =
+      selected?.company || matched?.name || query.trim() || undefined;
+    rememberSpamReject({ company: companyName, subject, body });
+    try {
+      await recordHitl("reject", { silent: true });
+      const res = await fetch("/api/drafts/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company: companyName,
+          domain: selected?.domain || matched?.domain,
+          subject,
+          body,
+          signal_summary:
+            parseSignalText(selected?.summary, selected?.implication).trigger ||
+            selected?.summary,
+          reason: "spam",
+          style_notes: styleNotesForPrompt(),
+        }),
+      });
+      const data = await res.json();
+      if (!data.body) throw new Error(data.error || "Rewrite failed");
+      setSubject(String(data.subject || subject));
+      setBody(String(data.body));
+      baselineRef.current = {
+        subject: String(data.subject || subject),
+        body: String(data.body),
+      };
+      setDraftApproved(false);
+      toast.success(
+        data.demo
+          ? "Inbox-safe rewrite ready (local fallback)"
+          : "Fresh inbox-safe draft for this signal",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rewrite failed");
+    } finally {
+      setRewriting(false);
+    }
+  }
+
+  function setSendMode(mode: SendMode) {
+    const next = { ...prefs, sendMode: mode, askedAt: prefs.askedAt || new Date().toISOString() };
+    saveOutreachPrefs(next);
+    setPrefs(next);
+    toast.message(
+      mode === "agent"
+        ? "Agent may send after Approve"
+        : "Human-in-the-loop — you send from Gmail",
+    );
+  }
+
   const loadTargets = useCallback(async () => {
+    setTargetsLoading(true);
     try {
       const res = await fetch("/api/targets", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok || data.status === "failed") {
+      const unavailable =
+        !res.ok ||
+        data.status === "failed" ||
+        data.status === "unavailable";
+      if (unavailable && !data.companies?.length && !data.categories?.length) {
         setTargetsMeta({
           total: 0,
           error: data.error || "Targets unavailable",
+          windowDays: data.window_days || 7,
         });
         setCategories([]);
+        setTargetCompanies([]);
         return;
       }
-      const cats: TargetCategory[] = data.categories || [];
+      const flatRaw: TargetCompany[] = Array.isArray(data.companies)
+        ? data.companies
+        : Array.isArray(data.categories)
+          ? data.categories.flatMap(
+              (c: TargetCategory) => c.companies || [],
+            )
+          : [];
+      const flat = dedupeTargetCompanies(
+        flatRaw.map((c) => ({
+          ...c,
+          industry: normalizeIndustry(c.industry),
+        })),
+      );
+      const cats = groupTargetsByIndustry(flat);
       setCategories(cats);
+      setTargetCompanies(flat);
       setTargetsMeta({
-        total: data.total || 0,
+        total: flat.length,
         windowDays: data.window_days || 7,
         lastRunAt: data.last_run_at,
         generatedAt: data.generated_at,
+        error: flat.length === 0 ? data.error : undefined,
       });
       setActiveIndustry((prev) => {
         if (prev === "all") return prev;
-        return cats.some((c) => c.industry === prev) ? prev : "all";
+        const industries = new Set(
+          cats.map((c) => normalizeIndustry(c.industry)),
+        );
+        return industries.has(normalizeIndustry(prev)) ? prev : "all";
       });
     } catch {
       setTargetsMeta({ total: 0, error: "Targets unavailable" });
       setCategories([]);
+      setTargetCompanies([]);
     } finally {
       setTargetsLoading(false);
     }
@@ -339,17 +547,28 @@ export function ScoutStudio() {
     const parsed = parseDraft(selected?.draft_body);
     setSubject(parsed.subject);
     setBody(parsed.text);
+    baselineRef.current = { subject: parsed.subject, body: parsed.text };
     setDraftApproved(false);
   }, [selected?.signal_id, selected?.draft_id, selected?.draft_body]);
 
   const visibleCompanies: TargetCompany[] = useMemo(() => {
+    const pool =
+      targetCompanies.length > 0
+        ? targetCompanies
+        : categories.flatMap((c) => c.companies);
     if (activeIndustry === "all") {
-      return categories.flatMap((c) => c.companies);
+      return [...pool].sort((a, b) => {
+        const ta = a.last_draft_at || "";
+        const tb = b.last_draft_at || "";
+        if (ta !== tb) return tb.localeCompare(ta);
+        return (a.name || "").localeCompare(b.name || "");
+      });
     }
-    return (
-      categories.find((c) => c.industry === activeIndustry)?.companies || []
+    const want = normalizeIndustry(activeIndustry);
+    return pool.filter(
+      (c) => normalizeIndustry(c.industry) === want,
     );
-  }, [categories, activeIndustry]);
+  }, [targetCompanies, categories, activeIndustry]);
 
   async function runScout(override?: string) {
     const q = (override ?? query).trim();
@@ -402,7 +621,7 @@ export function ScoutStudio() {
                 name:
                   company.domain ||
                   (looksDomain ? q.toLowerCase() : q) ||
-                  "Matched company",
+                  "Signal Scout",
               }
             : null;
       setItems(next);
@@ -520,8 +739,39 @@ export function ScoutStudio() {
     return true;
   }
 
+  function storeSent(
+    channel: SentChannel,
+    extra?: {
+      gmailVerified?: boolean;
+      gmailMessageId?: string | null;
+      gmailThreadId?: string | null;
+    },
+  ) {
+    const companyName =
+      selected?.company || matched?.name || companyTitle || query.trim();
+    const domain =
+      selected?.domain || matched?.domain || company?.domain || query.trim();
+    const row = markSent({
+      company: companyName,
+      domain,
+      to: to.trim(),
+      subject: subject.trim() || "Quick note",
+      body,
+      signalSummary:
+        parseSignalText(selected?.summary, selected?.implication).trigger ||
+        selected?.summary ||
+        undefined,
+      draftId: selected?.draft_id,
+      signalId: selected?.signal_id,
+      channel,
+      ...extra,
+    });
+    return row;
+  }
+
   function openInGmail() {
     if (!requireDraftReady()) return;
+    const afterUnix = Math.floor(Date.now() / 1000) - 30;
     window.open(
       gmailComposeUrl({
         to: to.trim(),
@@ -532,7 +782,49 @@ export function ScoutStudio() {
       "noopener,noreferrer",
     );
     setComposeOpened(true);
-    toast.success("Gmail compose opened");
+    const row = storeSent("gmail");
+    toast.success("Gmail opened · polling Sent to verify");
+    void pollGmailSent(row.id, afterUnix);
+  }
+
+  async function agentSend() {
+    if (!requireDraftReady()) return;
+    if (prefs.sendMode !== "agent") {
+      toast.message("Switch to Agent may send, or use Open in Gmail");
+      return;
+    }
+    if (!draftApproved) {
+      toast.message("Approve the draft first");
+      setWorkspaceTab("draft");
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await fetch("/api/gmail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: to.trim(),
+          subject: subject.trim() || "Quick note",
+          body,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.id) {
+        throw new Error(data.error || "Send failed");
+      }
+      setComposeOpened(true);
+      storeSent("gmail_api", {
+        gmailVerified: true,
+        gmailMessageId: data.id,
+        gmailThreadId: data.threadId,
+      });
+      toast.success("Sent via Gmail · follow-ups queued (+3d / +7d)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Send failed");
+    } finally {
+      setSending(false);
+    }
   }
 
   function openInOutlook() {
@@ -547,11 +839,15 @@ export function ScoutStudio() {
       "noopener,noreferrer",
     );
     setComposeOpened(true);
+    storeSent("outlook");
+    toast.success("Outlook opened · saved to Sent with follow-ups");
   }
 
   function openMailApp() {
     if (!requireDraftReady()) return;
+    storeSent("mailto");
     setComposeOpened(true);
+    toast.success("Mail app · saved to Sent with follow-ups");
     window.location.href = mailtoUrl({
       to: to.trim(),
       subject: subject.trim() || "Quick note",
@@ -559,21 +855,23 @@ export function ScoutStudio() {
     });
   }
 
+  function saveAsSentOnly() {
+    if (!requireDraftReady()) return;
+    storeSent("manual");
+    setComposeOpened(true);
+    toast.success("Stored in Sent · +3d / +7d follow-ups queued");
+  }
+
   const company = matched || context?.company || null;
   const facts = companyFacts(company);
   const rows = overviewRows(company);
   const site = companyWebsite(company?.domain || query.trim());
-  const logoSrc = companyLogoSrc(
-    company?.domain || query.trim(),
-    company?.logo_url,
-  );
-  const scouted: ScoutedContent | undefined = context?.scouted;
   const thisMonth = monthLabel(context?.month);
   const companyTitle = (() => {
     const n = company?.name || query.trim();
     return n && String(n).toLowerCase() !== "none"
       ? n
-      : site?.host || "Matched company";
+      : site?.host || "Signal Scout";
   })();
   const draftItems = useMemo(
     () => items.filter((i) => Boolean(i.draft_body)),
@@ -620,743 +918,777 @@ export function ScoutStudio() {
     }
   }
 
-  return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 md:py-8">
-      <div className="mb-8 max-w-xl">
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-          Company scout
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-          The context changes your next send.
-        </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground md:text-base">
-          Enter a company, get a trigger-backed draft, pick a contact, then open
-          it in your mail
-          {session?.user?.email ? ` as ${session.user.email}` : ""}.
-        </p>
-      </div>
+  const hasCompanyPanel = Boolean(matched || context);
 
-      <Card className="mb-6 shadow-none">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Scout progress</CardTitle>
-          <CardDescription>
-            Compact steps — company stays visible; slide drafts in the workspace
-            only
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-0">
+  return (
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 py-2 sm:px-4 sm:py-3">
+      <OutreachPermissionDialog gmailConnected={session?.gmailConnected} />
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold tracking-tight">
+              Company scout
+            </h1>
+            <p className="truncate text-xs text-muted-foreground">
+              Domain in → draft out
+              {session?.user?.email ? ` · ${session.user.email}` : ""}
+              {prefs.sendMode === "agent" ? " · agent send on" : " · HITL send"}
+            </p>
+          </div>
           <ScoutFlowStepper
             current={flowStep}
             searching={loading}
             onStepChange={handleFlowStep}
+            className="max-w-sm shrink-0"
           />
-        </CardContent>
-      </Card>
+        </div>
 
-      <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <div className="flex flex-col gap-4">
-          <Card className="shadow-none">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Target company</CardTitle>
-              <CardDescription>
-                Prefer a domain for the best match
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="ramp.com"
-                  className="sm:flex-1"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void runScout();
-                  }}
-                />
-                <Button
-                  disabled={loading}
-                  onClick={() => void runScout()}
-                  className="sm:min-w-36"
-                >
-                  {loading ? "Scouting…" : "Run scout"}
-                </Button>
-              </div>
-              {status ? (
-                <p className="text-xs text-muted-foreground">{status}</p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          {(matched || context) && (
-            <Card className="shadow-none">
-              <CardHeader className="pb-3">
-                <div className="flex items-start gap-3">
-                  <Avatar
-                    size="lg"
-                    className="size-12 rounded-lg after:rounded-lg"
+        <div className="grid items-start gap-3 lg:grid-cols-2">
+          <div className="flex flex-col gap-3">
+            <Card size="sm" className="shadow-none">
+              <CardContent className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="ramp.com"
+                    className="min-w-0 flex-1"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void runScout();
+                    }}
+                  />
+                  <Button
+                    disabled={loading}
+                    onClick={() => void runScout()}
+                    className="shrink-0"
                   >
-                    {logoSrc ? (
-                      <AvatarImage
-                        src={logoSrc}
-                        alt=""
-                        className="rounded-lg object-contain p-1"
-                      />
-                    ) : null}
-                    <AvatarFallback className="rounded-lg text-sm font-semibold">
-                      {companyInitials(companyTitle, site?.host)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <CardTitle className="text-base leading-tight">
-                      {companyTitle}
-                    </CardTitle>
-                    <CardDescription className="mt-1">
-                      {site ? (
-                        <a
-                          href={site.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-medium text-primary underline-offset-4 hover:underline"
-                        >
-                          {site.host}
-                        </a>
-                      ) : (
-                        context?.note || "Live company overview"
-                      )}
-                    </CardDescription>
-                  </div>
+                    {loading ? "Scouting…" : "Run scout"}
+                  </Button>
                 </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-5">
-                <div className="flex flex-col gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Company info
+                {status ? (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {status}
                   </p>
-                  {rows.length > 0 ? (
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-                      {rows.map((row) => (
-                        <div key={row.label} className="min-w-0">
-                          <dt className="text-xs text-muted-foreground">
-                            {row.label}
-                          </dt>
-                          <dd className="truncate font-medium">{row.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  ) : facts.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {facts.map((f) => (
-                        <Badge key={f} variant="secondary">
-                          {f}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-                  {company?.description ? (
-                    <p className="line-clamp-3 text-sm leading-relaxed text-foreground/90">
-                      {company.description}
-                    </p>
-                  ) : !rows.length && !facts.length ? (
-                    <p className="text-sm text-muted-foreground">
-                      Profile saved. Industry, funding, and headcount appear
-                      when the source returns them.
-                    </p>
-                  ) : null}
-                  {scouted?.fetched_at ? (
-                    <p className="text-xs text-muted-foreground">
-                      Fetched {formatWhen(scouted.fetched_at)}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="rounded-lg border border-border px-2 py-2">
-                    <p className="text-lg font-semibold tabular-nums">
-                      {context?.signals_this_month ??
-                        context?.signals_in_graph ??
-                        items.length}
-                    </p>
-                    <p className="text-muted-foreground">Recent</p>
-                  </div>
-                  <div className="rounded-lg border border-border px-2 py-2">
-                    <p className="text-lg font-semibold tabular-nums">
-                      {context?.signals_created ?? 0}
-                    </p>
-                    <p className="text-muted-foreground">New scout</p>
-                  </div>
-                  <div className="rounded-lg border border-border px-2 py-2">
-                    <p className="text-lg font-semibold tabular-nums">
-                      {context?.drafts_created ?? draftItems.length}
-                    </p>
-                    <p className="text-muted-foreground">Drafts</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Recent signals · {thisMonth}
-                  </p>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    Select a signal to open its draft — use Prev/Next in the
-                    workspace to slide drafts only
-                    {(context?.suppressed_count ?? 0) > 0
-                      ? ` · ${context?.suppressed_count} skipped (do-not-contact)`
-                      : ""}
-                  </p>
-                  {items.length > 0 ? (
-                    <ul className="flex flex-col gap-2">
-                      {items.map((row, idx) => {
-                        const parsed = parseSignalText(
-                          row.summary,
-                          row.implication,
-                        );
-                        const whyShort =
-                          parsed.why && parsed.why.length > 160
-                            ? `${parsed.why.slice(0, 157).trim()}…`
-                            : parsed.why;
-                        const active = selected?.signal_id === row.signal_id;
-                        return (
-                          <li key={`${row.signal_id}-${row.draft_id ?? idx}`}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelected(row);
-                                if (row.draft_body) setWorkspaceTab("draft");
-                              }}
-                              className={cn(
-                                "flex w-full flex-col gap-2 rounded-lg border px-3 py-3 text-left transition",
-                                active
-                                  ? "border-primary bg-accent/25"
-                                  : "border-border hover:bg-secondary/40",
-                              )}
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                  {(row.type === "profile"
-                                    ? "snapshot"
-                                    : row.type || "signal"
-                                  ).replace(/_/g, " ")}
-                                </span>
-                                <Badge variant="outline">{row.severity}</Badge>
-                              </div>
-                              <p className="text-sm font-medium leading-snug">
-                                {parsed.trigger || "Signal detected"}
-                              </p>
-                              {whyShort ? (
-                                <div className="rounded-md bg-secondary/40 px-2.5 py-2">
-                                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                    Why it matters
-                                  </p>
-                                  <p className="mt-1 text-sm leading-relaxed text-foreground/90">
-                                    {whyShort}
-                                  </p>
-                                </div>
-                              ) : null}
-                              <p
-                                className={cn(
-                                  "text-xs",
-                                  row.draft_body
-                                    ? "font-medium text-primary"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                {[
-                                  row.draft_body
-                                    ? `Draft ready · confidence ${row.confidence ?? "—"}`
-                                    : "No draft yet",
-                                  formatWhen(row.detected_at),
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ")}
-                              </p>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No recent signals for this company yet. Run scout again —
-                      results appear here so you can pick one to draft.
-                    </p>
-                  )}
-                </div>
+                ) : null}
               </CardContent>
             </Card>
-          )}
 
-          <Card className="shadow-none">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <CardTitle className="text-base">
-                    This week&apos;s draft companies
-                  </CardTitle>
-                  <CardDescription>
-                    {targetsLoading
-                      ? "Loading companies with drafts…"
-                      : targetsMeta.total > 0
-                        ? `${targetsMeta.total} with drafts in the last ${targetsMeta.windowDays || 7} days · refreshes hourly`
-                        : "No drafts this week yet — seed list below until the cycle writes some"}
-                  </CardDescription>
+            {hasCompanyPanel && (
+              <Card
+                size="sm"
+                className="flex max-h-[min(40vh,26rem)] flex-col gap-0 overflow-hidden shadow-none"
+              >
+                <CardHeader className="shrink-0 border-b py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <CompanyAvatar
+                      key={`${company?.domain || site?.host || companyTitle}-left`}
+                      name={companyTitle}
+                      domain={company?.domain || site?.host}
+                      logoUrl={company?.logo_url}
+                      size="default"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="truncate leading-tight">
+                        {companyTitle}
+                      </CardTitle>
+                      <CardDescription className="truncate">
+                        {site ? (
+                          <a
+                            href={site.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-primary underline-offset-4 hover:underline"
+                          >
+                            {site.host}
+                          </a>
+                        ) : (
+                          context?.note || "Live company overview"
+                        )}
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-(--card-spacing) py-3">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-muted-foreground">
+                        Company info
+                      </Label>
+                      {rows.length > 0 ? (
+                        <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                          {rows.map((row) => (
+                            <div key={row.label} className="min-w-0">
+                              <dt className="text-xs text-muted-foreground">
+                                {row.label}
+                              </dt>
+                              <dd className="truncate font-medium">
+                                {row.value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : facts.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {facts.map((f) => (
+                            <Badge key={f} variant="secondary">
+                              {f}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Profile saved. Details appear when the source returns
+                          them.
+                        </p>
+                      )}
+                      {company?.description ? (
+                        <p className="line-clamp-3 text-sm text-muted-foreground">
+                          {company.description}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-lg border border-border px-2 py-2">
+                        <p className="text-base font-semibold tabular-nums">
+                          {context?.signals_this_month ??
+                            context?.signals_in_graph ??
+                            items.length}
+                        </p>
+                        <p className="text-muted-foreground">Recent</p>
+                      </div>
+                      <div className="rounded-lg border border-border px-2 py-2">
+                        <p className="text-base font-semibold tabular-nums">
+                          {context?.signals_created ?? 0}
+                        </p>
+                        <p className="text-muted-foreground">New</p>
+                      </div>
+                      <div className="rounded-lg border border-border px-2 py-2">
+                        <p className="text-base font-semibold tabular-nums">
+                          {context?.drafts_created ?? draftItems.length}
+                        </p>
+                        <p className="text-muted-foreground">Drafts</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-muted-foreground">
+                        Signals · {thisMonth}
+                        {(context?.suppressed_count ?? 0) > 0
+                          ? ` · ${context?.suppressed_count} skipped`
+                          : ""}
+                      </Label>
+                      {items.length > 0 ? (
+                        <ul className="flex flex-col gap-2">
+                          {items.map((row, idx) => {
+                            const parsed = parseSignalText(
+                              row.summary,
+                              row.implication,
+                            );
+                            const whyShort =
+                              parsed.why && parsed.why.length > 120
+                                ? `${parsed.why.slice(0, 117).trim()}…`
+                                : parsed.why;
+                            const active =
+                              selected?.signal_id === row.signal_id;
+                            return (
+                              <li
+                                key={`${row.signal_id}-${row.draft_id ?? idx}`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelected(row);
+                                    if (row.draft_body)
+                                      setWorkspaceTab("draft");
+                                  }}
+                                  className={cn(
+                                    "flex w-full flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left transition",
+                                    active
+                                      ? "border-primary bg-accent/25"
+                                      : "border-border hover:bg-secondary/40",
+                                  )}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Badge variant="secondary">
+                                      {(row.type === "profile"
+                                        ? "snapshot"
+                                        : row.type || "signal"
+                                      ).replace(/_/g, " ")}
+                                    </Badge>
+                                    <Badge variant="outline">
+                                      {row.severity}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm font-medium leading-snug">
+                                    {parsed.trigger || "Signal detected"}
+                                  </p>
+                                  {whyShort ? (
+                                    <p className="line-clamp-2 text-xs text-muted-foreground">
+                                      {whyShort}
+                                    </p>
+                                  ) : null}
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {row.draft_body ? (
+                                      <Badge>
+                                        Draft · {row.confidence ?? "—"}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline">
+                                        No draft
+                                      </Badge>
+                                    )}
+                                    {formatWhen(row.detected_at) ? (
+                                      <span className="text-xs text-muted-foreground">
+                                        {formatWhen(row.detected_at)}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No signals yet — run scout again.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card
+              size="sm"
+              className="flex max-h-[min(46vh,30rem)] min-h-48 flex-col gap-0 overflow-hidden shadow-none"
+            >
+              <CardHeader className="shrink-0 border-b py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <CardTitle>This week</CardTitle>
+                    <CardDescription className="truncate">
+                      {targetsLoading
+                        ? "Loading fetched companies…"
+                        : targetsMeta.error && targetsMeta.total === 0
+                          ? targetsMeta.error
+                          : targetsMeta.total > 0
+                            ? `${targetsMeta.total} with drafts · last ${targetsMeta.windowDays || 7}d`
+                            : "No draft companies this week yet"}
+                    </CardDescription>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={targetsLoading}
+                    onClick={() => void loadTargets()}
+                  >
+                    Refresh
+                  </Button>
                 </div>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={targetsLoading}
-                  onClick={() => {
-                    setTargetsLoading(true);
-                    void loadTargets();
-                  }}
-                >
-                  Refresh
-                </Button>
-              </div>
-              {targetsMeta.lastRunAt || targetsMeta.generatedAt ? (
-                <p className="text-xs text-muted-foreground">
-                  Instance{" "}
-                  {formatWhen(targetsMeta.lastRunAt) ||
-                    formatWhen(targetsMeta.generatedAt)}
-                  {targetsMeta.error ? ` · ${targetsMeta.error}` : ""}
-                </p>
-              ) : null}
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {categories.length > 0 ? (
-                <>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Button
-                      size="xs"
-                      variant={activeIndustry === "all" ? "default" : "outline"}
-                      onClick={() => setActiveIndustry("all")}
-                    >
-                      All ({targetsMeta.total})
-                    </Button>
-                    {categories.map((cat) => (
-                      <Button
-                        key={cat.industry}
-                        size="xs"
-                        variant={
-                          activeIndustry === cat.industry
-                            ? "default"
-                            : "outline"
-                        }
-                        onClick={() => setActiveIndustry(cat.industry)}
+              </CardHeader>
+              <CardContent className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-0 pt-0">
+                {targetsLoading ? (
+                  <div className="flex flex-col gap-2 overflow-y-auto px-(--card-spacing) py-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-2"
                       >
-                        {cat.industry} ({cat.count})
-                      </Button>
+                        <Skeleton className="size-8 rounded-lg" />
+                        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                          <Skeleton className="h-3.5 w-1/2" />
+                          <Skeleton className="h-3 w-3/4" />
+                        </div>
+                        <Skeleton className="h-5 w-8 rounded-full" />
+                      </div>
                     ))}
                   </div>
-                  <ul className="max-h-64 space-y-1.5 overflow-y-auto">
-                    {visibleCompanies.map((c) => (
-                      <li key={`${c.domain}-${c.name}`}>
-                        <button
-                          type="button"
-                          className="flex w-full items-start justify-between gap-2 rounded-lg border border-border px-3 py-2 text-left transition hover:bg-secondary/50"
+                ) : targetCompanies.length > 0 ? (
+                  <>
+                    <div className="shrink-0 px-(--card-spacing) pt-2">
+                      <ScrollArea className="w-full whitespace-nowrap">
+                        <div className="flex w-max gap-1.5 pb-2">
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant={
+                              activeIndustry === "all" ? "default" : "outline"
+                            }
+                            aria-pressed={activeIndustry === "all"}
+                            onClick={() => setActiveIndustry("all")}
+                          >
+                            All ({targetsMeta.total})
+                          </Button>
+                          {categories.map((cat) => {
+                            const industry = normalizeIndustry(cat.industry);
+                            const selected =
+                              normalizeIndustry(activeIndustry) === industry;
+                            return (
+                              <Button
+                                key={industry}
+                                type="button"
+                                size="xs"
+                                variant={selected ? "default" : "outline"}
+                                aria-pressed={selected}
+                                onClick={() => setActiveIndustry(industry)}
+                              >
+                                {industry} ({cat.count})
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-(--card-spacing) pb-(--card-spacing)">
+                      {visibleCompanies.length > 0 ? (
+                        <ul className="flex flex-col gap-1.5 pe-1">
+                          {visibleCompanies.map((c, idx) => (
+                            <li key={`${companyDedupeKey(c)}-${idx}`}>
+                              <button
+                                type="button"
+                                className="flex w-full items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-2 text-left transition hover:bg-secondary/50"
+                                onClick={() => {
+                                  const next = c.domain || c.name;
+                                  setQuery(next);
+                                  void runScout(next);
+                                }}
+                              >
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <CompanyAvatar
+                                    name={c.name}
+                                    domain={c.domain}
+                                    size="sm"
+                                  />
+                                  <span className="min-w-0">
+                                    <span className="block truncate text-sm font-medium">
+                                      {c.name}
+                                    </span>
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {[
+                                        c.domain,
+                                        normalizeIndustry(c.industry),
+                                        formatWhen(c.last_draft_at),
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" · ")}
+                                    </span>
+                                  </span>
+                                </span>
+                                <Badge variant="secondary">
+                                  {c.draft_count ?? 0}
+                                </Badge>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No companies in {normalizeIndustry(activeIndustry)}.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col gap-2 px-(--card-spacing) py-4">
+                    <p className="text-sm text-muted-foreground">
+                      {targetsMeta.error ||
+                        "No companies with drafts in the last 7 days yet."}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-fit"
+                      onClick={() => void loadTargets()}
+                    >
+                      Retry fetch
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card
+            size="sm"
+            className={cn(
+              "flex flex-col gap-0 overflow-hidden shadow-none lg:sticky lg:top-2",
+              selected?.draft_body || subject || body
+                ? "max-h-[min(82vh,48rem)] min-h-[28rem]"
+                : "min-h-48",
+            )}
+          >
+            <CardHeader className="shrink-0 gap-2 border-b py-2.5">
+              <div className="flex items-center gap-2.5">
+                <CompanyAvatar
+                  key={`${selected?.domain || matched?.domain || site?.host || "ws"}-right`}
+                  name={selected?.company || companyTitle}
+                  domain={selected?.domain || matched?.domain || site?.host}
+                  logoUrl={company?.logo_url}
+                  size="default"
+                />
+                <div className="min-w-0 flex-1">
+                  <CardDescription className="truncate">
+                    {(() => {
+                      const workspaceSite = companyWebsite(
+                        selected?.domain || matched?.domain || query.trim(),
+                      );
+                      if (!workspaceSite) return "Draft workspace";
+                      return (
+                        <>
+                          <a
+                            href={workspaceSite.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-primary underline-offset-4 hover:underline"
+                          >
+                            {workspaceSite.host}
+                          </a>
+                          {selected?.confidence != null
+                            ? ` · ${selected.confidence}`
+                            : ""}
+                        </>
+                      );
+                    })()}
+                  </CardDescription>
+                  <CardTitle className="truncate">
+                    {selected?.company ||
+                      matched?.name ||
+                      companyTitle ||
+                      "Waiting for a scout"}
+                  </CardTitle>
+                </div>
+              </div>
+              {draftItems.length > 0 ? (
+                <div className="flex items-center justify-between gap-1 rounded-lg border border-border px-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={draftItems.length < 2}
+                    onClick={() => selectDraftByOffset(-1)}
+                    aria-label="Previous draft"
+                  >
+                    <ChevronLeftIcon data-icon="inline-start" />
+                    Prev
+                  </Button>
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    {activeDraftIndex + 1} / {draftItems.length}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={draftItems.length < 2}
+                    onClick={() => selectDraftByOffset(1)}
+                    aria-label="Next draft"
+                  >
+                    Next
+                    <ChevronRightIcon data-icon="inline-end" />
+                  </Button>
+                </div>
+              ) : null}
+            </CardHeader>
+            <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden px-0">
+              {selected?.draft_body || subject || body ? (
+                <Tabs
+                  value={workspaceTab}
+                  onValueChange={(value) => {
+                    if (value != null) setWorkspaceTab(String(value));
+                  }}
+                  className="flex h-full min-h-0 flex-col gap-2"
+                >
+                  <div className="shrink-0 px-(--card-spacing) pt-2">
+                    <TabsList className="w-full">
+                      <TabsTrigger value="draft" className="flex-1">
+                        Draft
+                      </TabsTrigger>
+                      <TabsTrigger value="send" className="flex-1">
+                        Send
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
+                  <TabsContent
+                    value="draft"
+                    className="mt-0 min-h-0 flex-1 overflow-y-auto overscroll-contain data-hidden:hidden"
+                  >
+                    <div className="flex flex-col gap-3 px-(--card-spacing) pb-(--card-spacing)">
+                      <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
+                        <Label className="text-muted-foreground">Why now</Label>
+                        <p className="text-sm">
+                          {parseSignalText(
+                            selected?.summary,
+                            selected?.implication,
+                          ).trigger ||
+                            selected?.summary ||
+                            "Signal-backed draft from this scout"}
+                        </p>
+                        {(selected?.evidence_hashes?.length || 0) > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(selected?.evidence_hashes || [])
+                              .slice(0, 4)
+                              .map((h) => (
+                                <Badge key={h} variant="outline">
+                                  {h.length > 14 ? `${h.slice(0, 12)}…` : h}
+                                </Badge>
+                              ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="draft-subject">Subject</Label>
+                        <Input
+                          id="draft-subject"
+                          value={subject}
+                          onChange={(e) => {
+                            setSubject(e.target.value);
+                            setDraftApproved(false);
+                          }}
+                          onBlur={() => {
+                            if (selected?.draft_body) {
+                              void recordHitl("edit", { silent: true });
+                            }
+                          }}
+                          placeholder="Short, specific subject"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="draft-body">Body</Label>
+                        <Textarea
+                          id="draft-body"
+                          className="min-h-48 resize-y"
+                          value={body}
+                          onChange={(e) => {
+                            setBody(e.target.value);
+                            setDraftApproved(false);
+                          }}
+                          onBlur={() => {
+                            if (selected?.draft_body) {
+                              void recordHitl("edit", { silent: true });
+                            }
+                          }}
+                          placeholder="Plaintext, one clear ask…"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          disabled={hitlBusy || !selected?.draft_body}
                           onClick={() => {
-                            const next = c.domain || c.name;
-                            setQuery(next);
-                            void runScout(next);
+                            void (async () => {
+                              await recordHitl("approve");
+                              setDraftApproved(true);
+                              setWorkspaceTab("send");
+                              if (prefs.sendMode === "agent" && to.trim()) {
+                                toast.message(
+                                  "Approved — ready for Agent send",
+                                );
+                              }
+                            })();
                           }}
                         >
-                          <span>
-                            <span className="block text-sm font-medium">
-                              {c.name}
-                            </span>
-                            <span className="block text-xs text-muted-foreground">
-                              {[
-                                c.domain,
-                                c.funding_stage,
-                                c.industry,
-                                formatWhen(c.last_draft_at),
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
-                          </span>
-                          <Badge variant="secondary">
-                            {c.draft_count ?? 0} draft
-                            {(c.draft_count ?? 0) === 1 ? "" : "s"}
-                          </Badge>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
+                          Approve
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={hitlBusy}
+                          onClick={() => {
+                            void navigator.clipboard.writeText(
+                              `${subject.trim()}\n\n${body}`,
+                            );
+                            void recordHitl("edit");
+                            toast.success("Copied");
+                          }}
+                        >
+                          Copy
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={hitlBusy || rewriting}
+                          onClick={() => void rewriteAsInboxSafe()}
+                        >
+                          {rewriting ? "Rewriting…" : "Spammy · rewrite"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={hitlBusy}
+                          onClick={() => {
+                            void (async () => {
+                              await recordHitl("reject");
+                              setDraftApproved(false);
+                              const rest = draftItems.filter(
+                                (d) => d.draft_id !== selected?.draft_id,
+                              );
+                              setSelected(rest[0] || null);
+                              if (!rest.length) {
+                                setSubject("");
+                                setBody("");
+                              }
+                            })();
+                          }}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Approvals and edits train style memory. Flag spammy to
+                        get a different inbox-safe draft for the same signal.
+                      </p>
+                    </div>
+                  </TabsContent>
+                  <TabsContent
+                    value="send"
+                    className="mt-0 min-h-0 flex-1 overflow-y-auto overscroll-contain data-hidden:hidden"
+                  >
+                    <div className="flex flex-col gap-3 px-(--card-spacing) pb-(--card-spacing)">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label htmlFor="to">Recipient</Label>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={finding}
+                            onClick={() => void findContacts()}
+                          >
+                            {finding ? "Looking up…" : "Find contact"}
+                          </Button>
+                        </div>
+                        <Input
+                          id="to"
+                          type="email"
+                          value={to}
+                          onChange={(e) => setTo(e.target.value)}
+                          placeholder="name@company.com"
+                        />
+                      </div>
+
+                      {contacts.length > 0 ? (
+                        <div className="rounded-lg border border-border p-3">
+                          <ul className="flex flex-col gap-2">
+                            {contacts.map((c) => (
+                              <li
+                                key={`${c.name}-${c.title}-${c.emails[0] || ""}`}
+                                className="text-sm"
+                              >
+                                <p className="font-medium">
+                                  {c.name}
+                                  {c.title ? (
+                                    <span className="font-normal text-muted-foreground">
+                                      {" "}
+                                      · {c.title}
+                                    </span>
+                                  ) : null}
+                                </p>
+                                {c.emails.length ? (
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {c.emails.map((email) => (
+                                      <Button
+                                        key={email}
+                                        size="xs"
+                                        variant="secondary"
+                                        onClick={() => {
+                                          setTo(email);
+                                          toast.success(`Selected ${email}`);
+                                        }}
+                                      >
+                                        {email}
+                                      </Button>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">
+                                    No business email
+                                  </p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      <Separator />
+
+                      <div className="flex flex-col gap-2">
+                        <Label className="text-muted-foreground">
+                          Send permission
+                        </Label>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant={
+                              prefs.sendMode === "hitl" ? "default" : "outline"
+                            }
+                            onClick={() => setSendMode("hitl")}
+                          >
+                            Human in loop
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={
+                              prefs.sendMode === "agent" ? "default" : "outline"
+                            }
+                            onClick={() => setSendMode("agent")}
+                          >
+                            Agent may send
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {prefs.sendMode === "agent" ? (
+                          <Button
+                            disabled={sending || !draftApproved}
+                            onClick={() => void agentSend()}
+                          >
+                            {sending
+                              ? "Sending…"
+                              : draftApproved
+                                ? "Send via Gmail"
+                                : "Approve draft first"}
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant={
+                            prefs.sendMode === "agent" ? "secondary" : "default"
+                          }
+                          disabled={verifying}
+                          onClick={openInGmail}
+                        >
+                          {verifying ? "Verifying Sent…" : "Open in Gmail"}
+                        </Button>
+                        <Button variant="secondary" onClick={openInOutlook}>
+                          Outlook
+                        </Button>
+                        <Button variant="outline" onClick={openMailApp}>
+                          Mail app
+                        </Button>
+                        <Button variant="outline" onClick={saveAsSentOnly}>
+                          Save as sent
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Signed in as {session?.user?.email || "…"}.
+                        {prefs.sendMode === "agent"
+                          ? " Agent send uses Gmail API after Approve, then queues +3d / +7d follow-ups."
+                          : " Open in Gmail stores under Sent, polls Gmail Sent to confirm, and queues follow-ups for you."}
+                        {!session?.gmailConnected
+                          ? " Reconnect Google if verify/send fails."
+                          : ""}
+                      </p>
+                    </div>
+                  </TabsContent>
+                </Tabs>
               ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {TEST_COMPANIES.slice(0, 12).map((c) => (
-                    <Button
-                      key={c.domain}
-                      size="xs"
-                      variant="outline"
-                      title={c.note}
-                      onClick={() => {
-                        setQuery(c.domain);
-                        void runScout(c.domain);
-                      }}
-                    >
-                      {c.domain}
-                    </Button>
-                  ))}
+                <div className="flex h-full items-center justify-center px-(--card-spacing)">
+                  <p className="max-w-xs text-center text-sm text-muted-foreground">
+                    Run a scout to load a draft. Company profile stays on the
+                    left.
+                  </p>
                 </div>
               )}
             </CardContent>
           </Card>
-
         </div>
-
-        <Card className="shadow-none lg:sticky lg:top-20 lg:self-start">
-          <CardHeader className="gap-3">
-            <div className="flex items-start gap-3">
-              <Avatar
-                size="lg"
-                className="size-11 rounded-lg after:rounded-lg"
-              >
-                {logoSrc ? (
-                  <AvatarImage
-                    src={logoSrc}
-                    alt=""
-                    className="rounded-lg object-contain p-1"
-                  />
-                ) : null}
-                <AvatarFallback className="rounded-lg text-sm font-semibold">
-                  {companyInitials(
-                    selected?.company || companyTitle,
-                    selected?.domain || site?.host,
-                  )}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  {(() => {
-                    const workspaceSite = companyWebsite(
-                      selected?.domain || matched?.domain || query.trim(),
-                    );
-                    if (!workspaceSite) return <span>Draft workspace</span>;
-                    return (
-                      <>
-                        <a
-                          href={workspaceSite.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-medium text-primary underline-offset-4 hover:underline"
-                        >
-                          {workspaceSite.host}
-                        </a>
-                        {selected?.confidence != null ? (
-                          <span className="text-muted-foreground">
-                            · confidence {selected.confidence}
-                          </span>
-                        ) : null}
-                      </>
-                    );
-                  })()}
-                </CardDescription>
-                <CardTitle className="font-heading mt-1 text-xl leading-tight md:text-2xl">
-                  {selected?.company ||
-                    matched?.name ||
-                    companyTitle ||
-                    "Waiting for a scout"}
-                </CardTitle>
-              </div>
-            </div>
-            {selected?.summary ? (
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">Why now: </span>
-                {parseSignalText(selected.summary, selected.implication)
-                  .trigger || selected.summary}
-              </p>
-            ) : null}
-            {draftItems.length > 0 ? (
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-border px-2 py-1.5">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={draftItems.length < 2}
-                  onClick={() => selectDraftByOffset(-1)}
-                  aria-label="Previous draft"
-                >
-                  <ChevronLeftIcon data-icon="inline-start" />
-                  Prev
-                </Button>
-                <p className="text-xs tabular-nums text-muted-foreground">
-                  Draft {activeDraftIndex + 1} of {draftItems.length}
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={draftItems.length < 2}
-                  onClick={() => selectDraftByOffset(1)}
-                  aria-label="Next draft"
-                >
-                  Next
-                  <ChevronRightIcon data-icon="inline-end" />
-                </Button>
-              </div>
-            ) : null}
-          </CardHeader>
-          <CardContent>
-            {selected?.draft_body || subject || body ? (
-              <Tabs
-                value={workspaceTab}
-                onValueChange={(value) => {
-                  if (value != null) setWorkspaceTab(String(value));
-                }}
-              >
-                <TabsList className="mb-4">
-                  <TabsTrigger value="draft">Draft</TabsTrigger>
-                  <TabsTrigger value="send">Send</TabsTrigger>
-                </TabsList>
-                <TabsContent value="draft" className="flex flex-col gap-4">
-                  <div className="rounded-lg border border-border bg-secondary/20 px-3 py-3">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Why now
-                    </p>
-                    <p className="mt-1 text-sm leading-relaxed">
-                      {parseSignalText(
-                        selected?.summary,
-                        selected?.implication,
-                      ).trigger ||
-                        selected?.summary ||
-                        "Signal-backed draft from this scout"}
-                    </p>
-                    {(selected?.evidence_hashes?.length || 0) > 0 ? (
-                      <div className="mt-3 flex flex-col gap-1.5">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Cited evidence
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {(selected?.evidence_hashes || [])
-                            .slice(0, 4)
-                            .map((h) => (
-                              <Badge
-                                key={h}
-                                variant="outline"
-                                className="font-mono text-[10px]"
-                              >
-                                {h.length > 14 ? `${h.slice(0, 12)}…` : h}
-                              </Badge>
-                            ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    {creditsSpent != null || draftApproved ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {[
-                          creditsSpent != null
-                            ? `Credits this scout: ${creditsSpent}`
-                            : null,
-                          draftApproved ? "HITL: approved" : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label
-                      htmlFor="draft-subject"
-                      className="text-xs uppercase tracking-wide text-muted-foreground"
-                    >
-                      Subject
-                    </Label>
-                    <Input
-                      id="draft-subject"
-                      value={subject}
-                      onChange={(e) => {
-                        setSubject(e.target.value);
-                        setDraftApproved(false);
-                      }}
-                      onBlur={() => {
-                        if (selected?.draft_body) {
-                          void recordHitl("edit", { silent: true });
-                        }
-                      }}
-                      placeholder="Short, specific subject (no spam words)"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label
-                      htmlFor="draft-body"
-                      className="text-xs uppercase tracking-wide text-muted-foreground"
-                    >
-                      Body
-                    </Label>
-                    <Textarea
-                      id="draft-body"
-                      className="min-h-52 font-sans"
-                      value={body}
-                      onChange={(e) => {
-                        setBody(e.target.value);
-                        setDraftApproved(false);
-                      }}
-                      onBlur={() => {
-                        if (selected?.draft_body) {
-                          void recordHitl("edit", { silent: true });
-                        }
-                      }}
-                      placeholder="Plaintext, one clear ask — keep it human…"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Inbox-safe: short, specific, no links/hype. Approve then
-                    open Gmail/Outlook — Scout never auto-sends.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      disabled={hitlBusy || !selected?.draft_body}
-                      onClick={() => {
-                        void (async () => {
-                          await recordHitl("approve");
-                          setDraftApproved(true);
-                          setWorkspaceTab("send");
-                        })();
-                      }}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      disabled={hitlBusy}
-                      onClick={() => {
-                        void navigator.clipboard.writeText(
-                          `${subject.trim()}\n\n${body}`,
-                        );
-                        void recordHitl("edit");
-                        toast.success("Copied");
-                      }}
-                    >
-                      Copy · log edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={hitlBusy}
-                      onClick={() => {
-                        void (async () => {
-                          await recordHitl("reject");
-                          setDraftApproved(false);
-                          const rest = draftItems.filter(
-                            (d) => d.draft_id !== selected?.draft_id,
-                          );
-                          setSelected(rest[0] || null);
-                          if (!rest.length) {
-                            setSubject("");
-                            setBody("");
-                          }
-                        })();
-                      }}
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                </TabsContent>
-                <TabsContent value="send" className="flex flex-col gap-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <Label htmlFor="to">Recipient</Label>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={finding}
-                        onClick={() => void findContacts()}
-                      >
-                        {finding ? "Looking up…" : "Find contact"}
-                      </Button>
-                    </div>
-                    <Input
-                      id="to"
-                      type="email"
-                      value={to}
-                      onChange={(e) => setTo(e.target.value)}
-                      placeholder="name@company.com"
-                    />
-                  </div>
-
-                  {contacts.length > 0 ? (
-                    <ul className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-border p-3">
-                      {contacts.map((c) => (
-                        <li
-                          key={`${c.name}-${c.title}-${c.emails[0] || ""}`}
-                          className="text-sm"
-                        >
-                          <p className="font-medium">
-                            {c.name}
-                            {c.title ? (
-                              <span className="font-normal text-muted-foreground">
-                                {" "}
-                                · {c.title}
-                              </span>
-                            ) : null}
-                          </p>
-                          {c.emails.length ? (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {c.emails.map((email) => (
-                                <Button
-                                  key={email}
-                                  size="xs"
-                                  variant="secondary"
-                                  onClick={() => {
-                                    setTo(email);
-                                    toast.success(`Selected ${email}`);
-                                  }}
-                                >
-                                  {email}
-                                </Button>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">
-                              No business email
-                              {c.profile_url ? (
-                                <>
-                                  {" "}
-                                  ·{" "}
-                                  <a
-                                    href={c.profile_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="underline"
-                                  >
-                                    profile
-                                  </a>
-                                </>
-                              ) : null}
-                            </p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-
-                  <Separator />
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button onClick={openInGmail}>Open in Gmail</Button>
-                    <Button variant="secondary" onClick={openInOutlook}>
-                      Outlook
-                    </Button>
-                    <Button variant="outline" onClick={openMailApp}>
-                      Mail app
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Signed in as {session?.user?.email || "…"}. You choose the
-                    recipient and send — Scout never sends for you.
-                  </p>
-                </TabsContent>
-              </Tabs>
-            ) : (
-              <div className="rounded-lg border border-dashed border-border px-4 py-16 text-center text-sm text-muted-foreground">
-                Run a scout to load a draft for this company. Even with 0
-                signals, the left panel shows the live company profile the agent
-                fetched.
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

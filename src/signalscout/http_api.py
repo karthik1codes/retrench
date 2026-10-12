@@ -590,6 +590,66 @@ class Handler(BaseHTTPRequestHandler):
                 _json(self, 500, {"error": str(e)})
             return
 
+        if parsed.path == "/rewrite-draft":
+            company = str(body.get("company") or "there").strip() or "there"
+            subject = str(body.get("subject") or "").strip()
+            draft_body = str(body.get("body") or "").strip()
+            signal_summary = str(body.get("signal_summary") or "").strip()
+            reason = str(body.get("reason") or "spam").strip().lower()
+            style_notes = body.get("style_notes") or []
+            if not isinstance(style_notes, list):
+                style_notes = []
+            notes = "\n".join(f"- {n}" for n in style_notes[:10] if n)
+            try:
+                from signalscout.tracing import llm_complete
+
+                raw = llm_complete(
+                    system=(
+                        "Rewrite a cold outreach email so it lands in Inbox, not Spam. "
+                        "HARD LIMITS: under 90 words; plaintext only; format exactly:\n"
+                        "Subject: <line>\n\n<body>\n"
+                        "DELIVERABILITY: calm, specific, peer-to-peer. "
+                        "No hype, urgency, scarcity, ALL CAPS, emoji, links, HTML, or mail-merge placeholders. "
+                        "Open with the company or signal — not 'I hope this finds you well'. "
+                        "One soft ask. Never mention CrustData, enrichment, scrapers, or vendors. "
+                        "Use ONLY facts from the user message. Produce a DIFFERENT draft than the rejected one."
+                    ),
+                    user=(
+                        f"Company: {company}\n"
+                        f"Domain: {body.get('domain') or ''}\n"
+                        f"Rewrite reason: {reason}\n"
+                        f"Signal / allowed facts: {signal_summary or '(use prior draft carefully)'}\n"
+                        f"Rejected subject: {subject}\n"
+                        f"Rejected body:\n{draft_body}\n"
+                        f"Style memory from prior approvals/edits:\n{notes or '(none yet)'}\n"
+                        "Write a fresh Subject + body that avoids spam filters and matches approved style."
+                    ),
+                    metadata={
+                        "agent": "rewrite",
+                        "company": company,
+                        "summary": signal_summary or draft_body[:160],
+                    },
+                )
+                out_subject = subject
+                out_body = raw.strip()
+                if raw.lower().startswith("subject:"):
+                    lines = raw.splitlines()
+                    out_subject = lines[0].split(":", 1)[1].strip()
+                    rest = "\n".join(lines[1:]).lstrip()
+                    out_body = rest
+                _json(
+                    self,
+                    200,
+                    {
+                        "status": "ok",
+                        "subject": out_subject,
+                        "body": out_body,
+                    },
+                )
+            except Exception as e:  # noqa: BLE001
+                _json(self, 500, {"error": str(e)})
+            return
+
         _json(self, 404, {"error": "not found"})
 
 

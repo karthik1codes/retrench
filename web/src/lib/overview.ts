@@ -1,6 +1,8 @@
 import type { DraftRow } from "@/lib/scout-agent";
 
-const AGENT = process.env.SCOUT_AGENT_URL?.replace(/\/$/, "") || "";
+import { getScoutAgentUrl } from "@/lib/agent-url";
+
+const AGENT = getScoutAgentUrl();
 const TOKEN = process.env.SCOUT_API_TOKEN || "";
 
 export type OverviewStats = {

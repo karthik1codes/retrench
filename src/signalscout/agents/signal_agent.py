@@ -81,10 +81,14 @@ def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
     employee_range = basic.get("employee_count_range") or raw.get("employee_count_range")
     logo_url = _clean(
         basic.get("logo_permalink")
+        or basic.get("logo_url")
+        or basic.get("logo")
         or raw.get("logo_permalink")
         or raw.get("logo_url")
         or raw.get("logo")
     )
+    if not logo_url and domain:
+        logo_url = f"https://logo.clearbit.com/{domain}"
 
     if not cd_id:
         raise ValueError("company payload missing id/name/domain")

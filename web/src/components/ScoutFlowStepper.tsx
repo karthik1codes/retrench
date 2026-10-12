@@ -1,23 +1,16 @@
 "use client";
 
-import { CheckIcon } from "lucide-react";
-import {
-  Stepper,
-  StepperIndicator,
-  StepperItem,
-  StepperNav,
-  StepperTitle,
-  StepperTrigger,
-} from "@/components/reui/stepper";
+import { LoaderIcon } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 export const SCOUT_FLOW_STEPS = [
   {
-    title: "Searching",
+    title: "Search",
     detail: "Resolve the company and pull live profile signals.",
   },
   {
-    title: "Drafting",
+    title: "Draft",
     detail: "Pick a signal and edit the evidence-backed draft.",
   },
   {
@@ -25,12 +18,10 @@ export const SCOUT_FLOW_STEPS = [
     detail: "Choose a recipient and prepare the message.",
   },
   {
-    title: "Sending",
+    title: "Mail",
     detail: "Open your mail client — Scout never sends for you.",
   },
 ] as const;
-
-const completed = <CheckIcon className="size-2.5" aria-hidden="true" />;
 
 type ScoutFlowStepperProps = {
   current: number;
@@ -39,7 +30,7 @@ type ScoutFlowStepperProps = {
   className?: string;
 };
 
-/** Compact horizontal progress — company panel stays visible; drafts slide separately. */
+/** Compact workflow tabs — meant for the scout toolbar, not a separate card. */
 export function ScoutFlowStepper({
   current,
   onStepChange,
@@ -48,47 +39,35 @@ export function ScoutFlowStepper({
 }: ScoutFlowStepperProps) {
   const steps = SCOUT_FLOW_STEPS;
   const active = Math.min(Math.max(current, 1), steps.length);
-  const detail =
-    searching && active === 1
-      ? "Scouting the company now…"
-      : current > steps.length
-        ? "Mail compose opened. Scout another company anytime."
-        : steps[active - 1]?.detail;
 
   return (
-    <div className={cn("flex w-full flex-col gap-2", className)}>
-      <Stepper
-        value={current}
-        onValueChange={onStepChange}
-        orientation="horizontal"
-        indicators={{ completed }}
-        className="w-full"
-        aria-label="Scout workflow"
-      >
-        <StepperNav className="gap-1 sm:gap-2">
-          {steps.map((item, index) => {
-            const step = index + 1;
-            return (
-              <StepperItem
-                key={item.title}
-                step={step}
-                loading={step === 1 && searching}
-                className="flex-1"
-              >
-                <StepperTrigger className="w-full flex-col gap-1 rounded-lg px-1 py-2 sm:flex-row sm:items-center sm:gap-2 sm:px-2">
-                  <StepperIndicator className="size-7 shrink-0" />
-                  <StepperTitle className="truncate text-[11px] font-medium sm:text-xs">
-                    {item.title}
-                  </StepperTitle>
-                </StepperTrigger>
-              </StepperItem>
-            );
-          })}
-        </StepperNav>
-      </Stepper>
-      {detail ? (
-        <p className="text-xs text-pretty text-muted-foreground">{detail}</p>
-      ) : null}
-    </div>
+    <Tabs
+      value={String(active)}
+      onValueChange={(value) => {
+        const next = Number(value);
+        if (!Number.isFinite(next)) return;
+        onStepChange?.(next);
+      }}
+      className={cn("w-full max-w-md gap-0", className)}
+      aria-label="Scout workflow"
+    >
+      <TabsList className="grid h-8 w-full grid-cols-4">
+        {steps.map((item, index) => {
+          const step = index + 1;
+          return (
+            <TabsTrigger
+              key={item.title}
+              value={String(step)}
+              className="gap-1 px-1 text-xs"
+            >
+              {step === 1 && searching ? (
+                <LoaderIcon className="size-3 animate-spin" aria-hidden />
+              ) : null}
+              {item.title}
+            </TabsTrigger>
+          );
+        })}
+      </TabsList>
+    </Tabs>
   );
 }

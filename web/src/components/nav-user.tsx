@@ -3,11 +3,6 @@
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -22,6 +17,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { SignalScoutLogo } from "@/components/SignalScoutLogo";
 import {
   EllipsisVerticalIcon,
   CircleUserRoundIcon,
@@ -39,12 +35,6 @@ export function NavUser({
   };
 }) {
   const { isMobile } = useSidebar();
-  const initials = user.name
-    .split(" ")
-    .map((p) => p[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 
   return (
     <SidebarMenu>
@@ -55,12 +45,7 @@ export function NavUser({
               <SidebarMenuButton size="lg" className="aria-expanded:bg-muted" />
             }
           >
-            <Avatar className="size-8 rounded-lg grayscale">
-              <AvatarImage src={user.avatar} alt={user.name} />
-              <AvatarFallback className="rounded-lg">
-                {initials || "SS"}
-              </AvatarFallback>
-            </Avatar>
+            <SignalScoutLogo className="size-8 rounded-lg" />
             <div className="grid flex-1 text-start text-sm leading-tight">
               <span className="truncate font-medium">{user.name}</span>
               <span className="truncate text-xs text-foreground/70">
@@ -78,12 +63,7 @@ export function NavUser({
             <DropdownMenuGroup>
               <DropdownMenuLabel className="p-0 font-normal">
                 <div className="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
-                  <Avatar className="size-8">
-                    <AvatarImage src={user.avatar} alt={user.name} />
-                    <AvatarFallback className="rounded-lg">
-                      {initials || "SS"}
-                    </AvatarFallback>
-                  </Avatar>
+                  <SignalScoutLogo className="size-8 rounded-lg" />
                   <div className="grid flex-1 text-start text-sm leading-tight">
                     <span className="truncate font-medium">{user.name}</span>
                     <span className="truncate text-xs text-muted-foreground">

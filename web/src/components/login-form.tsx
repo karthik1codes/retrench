@@ -67,7 +67,15 @@ export function LoginForm({
               </Button>
             </Field>
             <FieldDescription className="text-center text-xs">
-              You send every message yourself.
+              If Google says the app is testing, add your email as a test user
+              first —{" "}
+              <a
+                href="/settings/google"
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                Google OAuth setup
+              </a>
+              .
             </FieldDescription>
           </FieldGroup>
         </CardContent>

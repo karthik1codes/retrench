@@ -8,6 +8,8 @@ const TITLES: Record<string, string> = {
   "/dashboard": "Overview",
   "/scout": "Scout",
   "/watchlist": "Watchlist",
+  "/sent": "Sent",
+  "/follow-ups": "Follow-ups",
 };
 
 export function SiteHeader() {

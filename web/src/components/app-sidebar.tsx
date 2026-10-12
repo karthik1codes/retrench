@@ -8,11 +8,15 @@ import {
   RadarIcon,
   SearchIcon,
   FileTextIcon,
+  MailCheckIcon,
+  CalendarClockIcon,
+  ShieldCheckIcon,
 } from "lucide-react";
 import { NavDocuments } from "@/components/nav-documents";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
+import { SignalScoutLogo } from "@/components/SignalScoutLogo";
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +39,16 @@ const navMain = [
     icon: <ListIcon />,
   },
   {
+    title: "Sent",
+    url: "/sent",
+    icon: <MailCheckIcon />,
+  },
+  {
+    title: "Follow-ups",
+    url: "/follow-ups",
+    icon: <CalendarClockIcon />,
+  },
+  {
     title: "Overview",
     url: "/dashboard",
     icon: <LayoutDashboardIcon />,
@@ -47,6 +61,11 @@ const navSecondary = [
     url: "/scout",
     icon: <SearchIcon />,
   },
+  {
+    title: "Google OAuth setup",
+    url: "/settings/google",
+    icon: <ShieldCheckIcon />,
+  },
 ];
 
 const documents = [
@@ -54,6 +73,16 @@ const documents = [
     name: "This week's drafts",
     url: "/watchlist",
     icon: <FileTextIcon />,
+  },
+  {
+    name: "Sent mailbox",
+    url: "/sent",
+    icon: <MailCheckIcon />,
+  },
+  {
+    name: "Follow-up queue",
+    url: "/follow-ups",
+    icon: <CalendarClockIcon />,
   },
 ];
 
@@ -74,9 +103,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               className="data-[slot=sidebar-menu-button]:p-1.5!"
               render={<Link href="/" />}
             >
-              <span className="flex size-5 items-center justify-center rounded-sm bg-primary text-primary-foreground">
-                <RadarIcon className="size-3.5" />
-              </span>
+              <SignalScoutLogo
+                className="size-6 rounded-md"
+                iconClassName="size-3.5"
+              />
               <span className="text-base font-semibold">Signal Scout</span>
             </SidebarMenuButton>
           </SidebarMenuItem>

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { GalleryVerticalEndIcon } from "lucide-react";
 import { auth, googleConfigured } from "@/auth";
 import { LoginForm } from "@/components/login-form";
+import { SignalScoutLogo } from "@/components/SignalScoutLogo";
 
 export const metadata = {
   title: "Sign in",
@@ -25,9 +25,10 @@ export default async function LoginPage({
           href="/"
           className="flex items-center gap-2 self-center font-medium"
         >
-          <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <GalleryVerticalEndIcon className="size-4" />
-          </div>
+          <SignalScoutLogo
+            className="size-6 rounded-md"
+            iconClassName="size-3.5"
+          />
           <span className="font-heading tracking-wide">Signal Scout</span>
         </Link>
         <LoginForm

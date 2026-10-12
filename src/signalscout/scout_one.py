@@ -314,12 +314,19 @@ def _company_context(raw: dict[str, Any]) -> dict[str, Any]:
     growth = norm.get("headcount_growth_30d_pct")
     if isinstance(growth, (int, float)):
         growth = round(float(growth), 1)
+    domain = norm.get("domain")
+    logo_url = norm.get("logo_url")
+    # Prefer CrustData permalink; otherwise a public logo CDN keyed by domain
+    if not logo_url and domain:
+        host = str(domain).replace("https://", "").replace("http://", "").split("/")[0]
+        if host:
+            logo_url = f"https://logo.clearbit.com/{host}"
     return {
         "name": norm.get("name"),
-        "domain": norm.get("domain"),
+        "domain": domain,
         "industry": norm.get("industry") or None,
         "description": norm.get("description"),
-        "logo_url": norm.get("logo_url"),
+        "logo_url": logo_url,
         "employee_range": norm.get("employee_range"),
         "headcount": norm.get("headcount"),
         "funding_stage": norm.get("funding_stage"),

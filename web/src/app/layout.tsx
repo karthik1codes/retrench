@@ -28,6 +28,11 @@ export const metadata: Metadata = {
   },
   description:
     "The signal graph for your outreach — funding, hiring, and exec moves, drafted for you to send.",
+  icons: {
+    icon: [{ url: "/brand/signal-scout-mark.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/brand/signal-scout-oauth-logo.jpg" }],
+    shortcut: ["/brand/signal-scout-mark.svg"],
+  },
 };
 
 export default function RootLayout({
