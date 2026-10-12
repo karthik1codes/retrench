@@ -18,8 +18,11 @@ from signalscout.scout_one import scout_company
 def _cors(handler: BaseHTTPRequestHandler) -> None:
     origin = os.environ.get("SCOUT_CORS_ORIGIN", "*")
     handler.send_header("Access-Control-Allow-Origin", origin)
-    handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type, X-Scout-Token")
+    handler.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+    handler.send_header(
+        "Access-Control-Allow-Headers",
+        "Content-Type, X-Scout-Token, X-User-Id, X-Device-Id",
+    )
 
 
 def _auth_ok(handler: BaseHTTPRequestHandler) -> bool:
@@ -496,6 +499,23 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 _json(self, 500, {"error": str(e), "status": "failed"})
             return
+        if parsed.path == "/user/profile":
+            qs = parse_qs(parsed.query)
+            user_id = (
+                (qs.get("user_id") or qs.get("userId") or [""])[0]
+                or self.headers.get("X-User-Id", "")
+            ).strip()
+            if not user_id:
+                _json(self, 400, {"error": "user_id required"})
+                return
+            try:
+                from signalscout.user_profile import get_profile
+
+                profile = get_profile(user_id)
+                _json(self, 200, {"status": "ok", "profile": profile})
+            except Exception as e:  # noqa: BLE001
+                _json(self, 500, {"error": str(e), "status": "failed"})
+            return
         _json(self, 404, {"error": "not found"})
 
     def do_POST(self) -> None:
@@ -650,7 +670,77 @@ class Handler(BaseHTTPRequestHandler):
                 _json(self, 500, {"error": str(e)})
             return
 
+        if parsed.path == "/user/profile":
+            self._upsert_user_profile(body)
+            return
+
         _json(self, 404, {"error": "not found"})
+
+    def do_PUT(self) -> None:
+        if not _auth_ok(self):
+            _json(self, 401, {"error": "unauthorized"})
+            return
+        parsed = urlparse(self.path)
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            _json(self, 400, {"error": "invalid json"})
+            return
+        if parsed.path == "/user/profile":
+            self._upsert_user_profile(body)
+            return
+        _json(self, 404, {"error": "not found"})
+
+    def _upsert_user_profile(self, body: dict[str, Any]) -> None:
+        user_id = str(
+            body.get("user_id")
+            or body.get("userId")
+            or self.headers.get("X-User-Id")
+            or ""
+        ).strip()
+        if not user_id:
+            _json(self, 400, {"error": "user_id required"})
+            return
+        try:
+            from signalscout.user_profile import upsert_profile
+
+            device = body.get("device")
+            if device is not None and not isinstance(device, dict):
+                device = None
+            raw_profile = body.get("profile")
+            if isinstance(raw_profile, dict):
+                patch = raw_profile
+            else:
+                patch = {
+                    k: v
+                    for k, v in body.items()
+                    if k
+                    in {
+                        "outreachPrefs",
+                        "sentDrafts",
+                        "styleMemory",
+                        "devices",
+                        "email",
+                        "name",
+                    }
+                }
+            profile = upsert_profile(
+                user_id,
+                patch,
+                email=str(body.get("email") or ""),
+                name=str(body.get("name") or ""),
+                device=device,
+                base_version=(
+                    int(body["base_version"])
+                    if body.get("base_version") is not None
+                    else None
+                ),
+            )
+            _json(self, 200, {"status": "ok", "profile": profile})
+        except Exception as e:  # noqa: BLE001
+            _json(self, 500, {"error": str(e), "status": "failed"})
 
 
 def serve(host: str = "0.0.0.0", port: int = 8787) -> None:

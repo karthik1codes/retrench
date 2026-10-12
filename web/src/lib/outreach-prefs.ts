@@ -10,15 +10,22 @@ export type OutreachPrefs = {
 
 const KEY = "signal-scout:outreach-prefs:v1";
 
+function storageKey(userKey?: string | null) {
+  const k = (userKey || "anon").trim().toLowerCase() || "anon";
+  return `${KEY}:${k}`;
+}
+
 export const DEFAULT_OUTREACH_PREFS: OutreachPrefs = {
   sendMode: "hitl",
   verifySent: true,
 };
 
-export function loadOutreachPrefs(): OutreachPrefs {
+export function loadOutreachPrefs(userKey?: string | null): OutreachPrefs {
   if (typeof window === "undefined") return DEFAULT_OUTREACH_PREFS;
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const scoped = storageKey(userKey);
+    let raw = window.localStorage.getItem(scoped);
+    if (!raw) raw = window.localStorage.getItem(KEY);
     if (!raw) return DEFAULT_OUTREACH_PREFS;
     return { ...DEFAULT_OUTREACH_PREFS, ...(JSON.parse(raw) as OutreachPrefs) };
   } catch {
@@ -26,16 +33,23 @@ export function loadOutreachPrefs(): OutreachPrefs {
   }
 }
 
-export function saveOutreachPrefs(prefs: OutreachPrefs) {
+export function saveOutreachPrefs(
+  prefs: OutreachPrefs,
+  userKey?: string | null,
+) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(
-    KEY,
-    JSON.stringify({ ...prefs, askedAt: prefs.askedAt || new Date().toISOString() }),
+    storageKey(userKey),
+    JSON.stringify({
+      ...prefs,
+      askedAt: prefs.askedAt || new Date().toISOString(),
+    }),
   );
   window.dispatchEvent(new Event("signal-scout:outreach-prefs"));
+  window.dispatchEvent(new Event("signal-scout:profile-dirty"));
 }
 
-export function hasChosenOutreachPrefs(): boolean {
-  const p = loadOutreachPrefs();
+export function hasChosenOutreachPrefs(userKey?: string | null): boolean {
+  const p = loadOutreachPrefs(userKey);
   return Boolean(p.askedAt);
 }

@@ -115,6 +115,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.image = (token.picture as string) || session.user.image;
+        if (token.sub) session.user.id = token.sub;
       }
       const scopes = String(token.gmailScopes || "");
       const hasGmail =

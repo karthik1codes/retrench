@@ -41,6 +41,11 @@ export type SentDraft = {
 
 const STORAGE_KEY = "signal-scout:sent-drafts:v1";
 
+function storageKey(userKey?: string | null) {
+  const k = (userKey || "anon").trim().toLowerCase() || "anon";
+  return `${STORAGE_KEY}:${k}`;
+}
+
 function uid(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -118,10 +123,21 @@ export function buildFollowUps(input: {
   ];
 }
 
-export function loadSentDrafts(): SentDraft[] {
+export function loadSentDrafts(userKey?: string | null): SentDraft[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const scoped = storageKey(userKey);
+    let raw = window.localStorage.getItem(scoped);
+    // One-time migrate legacy unscoped key into this user's bucket.
+    if (!raw && (!userKey || userKey === "anon")) {
+      raw = window.localStorage.getItem(STORAGE_KEY);
+    } else if (!raw && userKey) {
+      const legacy = window.localStorage.getItem(STORAGE_KEY);
+      if (legacy) {
+        raw = legacy;
+        window.localStorage.setItem(scoped, legacy);
+      }
+    }
     if (!raw) return [];
     const parsed = JSON.parse(raw) as SentDraft[];
     return Array.isArray(parsed) ? parsed : [];
@@ -130,9 +146,9 @@ export function loadSentDrafts(): SentDraft[] {
   }
 }
 
-export function saveSentDrafts(rows: SentDraft[]) {
+export function saveSentDrafts(rows: SentDraft[], userKey?: string | null) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+  window.localStorage.setItem(storageKey(userKey), JSON.stringify(rows));
   window.dispatchEvent(new Event("signal-scout:sent-drafts"));
 }
 
@@ -175,6 +191,9 @@ export function upsertSentDraft(
   const existing = loadSentDrafts();
   const next = [row, ...existing.filter((d) => d.id !== row.id)];
   saveSentDrafts(next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("signal-scout:profile-dirty"));
+  }
   return row;
 }
 
@@ -193,6 +212,9 @@ export function regeneratePendingFollowUps(sentId: string): SentDraft[] {
     return { ...d, followUps: [...kept, ...fresh] };
   });
   saveSentDrafts(next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("signal-scout:profile-dirty"));
+  }
   return next;
 }
 
@@ -211,6 +233,9 @@ export function updateFollowUpStatus(
     };
   });
   saveSentDrafts(next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("signal-scout:profile-dirty"));
+  }
   return next;
 }
 
@@ -228,12 +253,18 @@ export function markGmailVerified(
     };
   });
   saveSentDrafts(next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("signal-scout:profile-dirty"));
+  }
   return next;
 }
 
 export function deleteSentDraft(id: string): SentDraft[] {
   const next = loadSentDrafts().filter((d) => d.id !== id);
   saveSentDrafts(next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("signal-scout:profile-dirty"));
+  }
   return next;
 }
 

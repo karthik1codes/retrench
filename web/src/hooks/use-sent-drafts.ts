@@ -31,11 +31,14 @@ export function useSentDrafts() {
       }
     };
     const onCustom = () => refresh();
+    const onSynced = () => refresh();
     window.addEventListener("storage", onStorage);
     window.addEventListener("signal-scout:sent-drafts", onCustom);
+    window.addEventListener("signal-scout:profile-synced", onSynced);
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("signal-scout:sent-drafts", onCustom);
+      window.removeEventListener("signal-scout:profile-synced", onSynced);
     };
   }, [refresh]);
 

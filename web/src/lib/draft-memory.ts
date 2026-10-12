@@ -13,14 +13,21 @@ export type StyleObservation = {
 const KEY = "signal-scout:draft-memory:v1";
 const MAX = 40;
 
+function storageKey(userKey?: string | null) {
+  const k = (userKey || "anon").trim().toLowerCase() || "anon";
+  return `${KEY}:${k}`;
+}
+
 function uid() {
   return `mem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export function loadStyleMemory(): StyleObservation[] {
+export function loadStyleMemory(userKey?: string | null): StyleObservation[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const scoped = storageKey(userKey);
+    let raw = window.localStorage.getItem(scoped);
+    if (!raw) raw = window.localStorage.getItem(KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StyleObservation[];
     return Array.isArray(parsed) ? parsed : [];
@@ -29,9 +36,18 @@ export function loadStyleMemory(): StyleObservation[] {
   }
 }
 
-export function saveStyleMemory(rows: StyleObservation[]) {
+export function saveStyleMemory(
+  rows: StyleObservation[],
+  userKey?: string | null,
+) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(KEY, JSON.stringify(rows.slice(0, MAX)));
+  window.localStorage.setItem(
+    storageKey(userKey),
+    JSON.stringify(rows.slice(0, MAX)),
+  );
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("signal-scout:profile-dirty"));
+  }
 }
 
 export function rememberApproval(input: {

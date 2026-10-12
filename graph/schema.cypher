@@ -25,7 +25,11 @@ FOR (e:Evidence) REQUIRE e.payload_hash IS UNIQUE;
 CREATE CONSTRAINT run_id IF NOT EXISTS
 FOR (r:Run) REQUIRE r.id IS UNIQUE;
 
+CREATE CONSTRAINT user_id IF NOT EXISTS
+FOR (u:User) REQUIRE u.id IS UNIQUE;
+
 CREATE INDEX company_domain IF NOT EXISTS FOR (c:Company) ON (c.domain);
+CREATE INDEX user_email IF NOT EXISTS FOR (u:User) ON (u.email);
 CREATE INDEX signal_state IF NOT EXISTS FOR (s:Signal) ON (s.state);
 CREATE INDEX signal_detected IF NOT EXISTS FOR (s:Signal) ON (s.detected_at);
 CREATE INDEX run_status IF NOT EXISTS FOR (r:Run) ON (r.status);
