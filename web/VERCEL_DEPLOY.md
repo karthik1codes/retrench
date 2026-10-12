@@ -89,8 +89,6 @@ Confirm these load without login:
 - `https://YOUR_APP.vercel.app/`
 - `https://YOUR_APP.vercel.app/privacy`
 - `https://YOUR_APP.vercel.app/terms`
-- `https://YOUR_APP.vercel.app/settings/google`
-
 ---
 
 ## 5. Wire Google OAuth to the Vercel domain

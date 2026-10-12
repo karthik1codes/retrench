@@ -10,7 +10,6 @@ import {
   FileTextIcon,
   MailCheckIcon,
   CalendarClockIcon,
-  ShieldCheckIcon,
 } from "lucide-react";
 import { NavDocuments } from "@/components/nav-documents";
 import { NavMain } from "@/components/nav-main";
@@ -60,11 +59,6 @@ const navSecondary = [
     title: "Find a company",
     url: "/scout",
     icon: <SearchIcon />,
-  },
-  {
-    title: "Google OAuth setup",
-    url: "/settings/google",
-    icon: <ShieldCheckIcon />,
   },
 ];
 

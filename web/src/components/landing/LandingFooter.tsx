@@ -27,7 +27,6 @@ const COLUMNS = [
     links: [
       { href: "/privacy", label: "Privacy" },
       { href: "/terms", label: "Terms" },
-      { href: "/settings/google", label: "Google OAuth setup" },
       { href: "/login", label: "Sign in" },
     ],
   },

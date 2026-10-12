@@ -95,10 +95,6 @@ export default function PrivacyPage() {
       </div>
 
       <p className="mt-10 text-sm">
-        <Link href="/settings/google" className="text-primary hover:underline">
-          Google OAuth setup
-        </Link>
-        {" · "}
         <Link href="/terms" className="text-primary hover:underline">
           Terms
         </Link>
