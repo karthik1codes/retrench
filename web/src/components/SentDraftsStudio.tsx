@@ -44,7 +44,14 @@ export function SentDraftsStudio({
   initialTab = "sent",
 }: SentDraftsStudioProps) {
   const { data: session } = useSession();
-  const { ready, drafts, followUps, setFollowUp, remove } = useSentDrafts();
+  const {
+    ready,
+    drafts,
+    followUps,
+    setFollowUp,
+    regenerateFollowUps,
+    remove,
+  } = useSentDrafts();
   const [tab, setTab] = useState(initialTab);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
@@ -133,22 +140,13 @@ export function SentDraftsStudio({
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6">
-      <div>
+      <div className="min-w-0">
         <h1 className="text-lg font-semibold tracking-tight">Sent & follow-ups</h1>
         <p className="text-sm text-muted-foreground">
-          Sent store + +3d / +7d follow-ups
+          After you send, Scout queues a +3d bump and +7d close for review
           {agentMode
-            ? " · agent mode keeps overdue follow-ups when Gmail is connected"
-            : " · human-in-the-loop (open mail yourself)"}
-          . Pattern inspired by{" "}
-          <a
-            href="https://www.langchain.com/blog/how-we-built-langchains-gtm-agent"
-            target="_blank"
-            rel="noreferrer"
-            className="text-primary underline-offset-4 hover:underline"
-          >
-            LangChain&apos;s GTM agent
-          </a>
+            ? " · agent mode can send overdue items when Gmail is connected"
+            : " · you approve each follow-up before it goes out"}
           .
         </p>
       </div>
@@ -160,7 +158,7 @@ export function SentDraftsStudio({
         }}
         className="gap-4"
       >
-        <TabsList>
+        <TabsList className="grid h-auto w-full grid-cols-2 sm:inline-flex sm:w-auto">
           <TabsTrigger value="sent">
             Sent ({drafts.length})
           </TabsTrigger>
@@ -178,8 +176,8 @@ export function SentDraftsStudio({
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-3 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
-              <Card size="sm" className="shadow-none">
+            <div className="grid items-stretch gap-3 lg:grid-cols-[0.95fr_1.05fr]">
+              <Card size="sm" className="min-w-0 shadow-none">
                 <CardHeader className="border-b py-2.5">
                   <CardTitle>Stored sends</CardTitle>
                   <CardDescription>
@@ -232,9 +230,9 @@ export function SentDraftsStudio({
               </Card>
 
               {selected ? (
-                <Card size="sm" className="shadow-none">
+                <Card size="sm" className="min-w-0 shadow-none">
                   <CardHeader className="border-b py-2.5">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <CardTitle className="truncate">
                           {selected.subject}
@@ -275,7 +273,19 @@ export function SentDraftsStudio({
                     </div>
                     <Separator />
                     <div className="flex flex-col gap-2">
-                      <p className="text-sm font-medium">Follow-ups</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">Follow-up sequence</p>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => {
+                            regenerateFollowUps(selected.id);
+                            toast.success("Pending follow-ups regenerated");
+                          }}
+                        >
+                          Regenerate
+                        </Button>
+                      </div>
                       {selected.followUps.map((f) => (
                         <div
                           key={f.id}
@@ -283,7 +293,9 @@ export function SentDraftsStudio({
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <p className="text-sm font-medium">
-                              Day +{f.dayOffset} · {formatWhen(f.dueAt)}
+                              Day +{f.dayOffset}
+                              {f.purpose ? ` · ${f.purpose}` : ""} ·{" "}
+                              {formatWhen(f.dueAt)}
                             </p>
                             <Badge
                               variant={
@@ -297,9 +309,12 @@ export function SentDraftsStudio({
                               {f.status}
                             </Badge>
                           </div>
-                          <p className="mt-1 truncate text-xs text-muted-foreground">
+                          <p className="mt-1 truncate text-xs font-medium">
                             {f.subject}
                           </p>
+                          <pre className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap font-sans text-xs leading-relaxed text-muted-foreground">
+                            {f.body}
+                          </pre>
                           {f.status === "pending" ? (
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {agentMode ? (
@@ -377,8 +392,8 @@ export function SentDraftsStudio({
           {followUps.length === 0 ? (
             <Card size="sm" className="shadow-none">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                No pending follow-ups. Save a sent draft from Scout to enqueue
-                day +3 and day +7 nudges.
+                No pending follow-ups. Send from Scout to enroll a +3d bump and
+                +7d close sequence.
               </CardContent>
             </Card>
           ) : (
@@ -386,23 +401,29 @@ export function SentDraftsStudio({
               {followUps.map((f) => (
                 <li key={`${f.sentId}-${f.id}`}>
                   <Card size="sm" className="shadow-none">
-                    <CardContent className="flex flex-col gap-3 py-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
+                    <CardContent className="flex flex-col gap-3 py-3 sm:flex-row sm:items-stretch sm:justify-between">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-medium">{f.company}</p>
                           <Badge variant={f.overdue ? "destructive" : "secondary"}>
                             {f.overdue ? "Due" : `Day +${f.dayOffset}`}
                           </Badge>
+                          {f.purpose ? (
+                            <Badge variant="outline">{f.purpose}</Badge>
+                          ) : null}
                           <span className="text-xs text-muted-foreground">
                             {formatWhen(f.dueAt)}
                           </span>
                         </div>
                         <p className="mt-1 truncate text-sm">{f.subject}</p>
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">
+                          {f.body}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
                           To {f.to}
                         </p>
                       </div>
-                      <div className="flex shrink-0 flex-wrap gap-1.5">
+                      <div className="flex w-full shrink-0 flex-wrap gap-1.5 sm:w-auto sm:flex-col sm:items-stretch lg:flex-row">
                         {agentMode ? (
                           <Button
                             size="sm"

@@ -169,7 +169,7 @@ export function LandingFeatures() {
 
           {TABS.map((t) => (
             <TabsContent key={t.id} value={t.id} className="mt-0">
-              <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+              <div className="grid items-stretch gap-6 lg:grid-cols-[0.9fr_1.1fr]">
                 <div className="rounded-2xl border border-white/10 bg-card p-5 sm:p-6">
                   <div className="flex items-center gap-2">
                     <t.icon className="size-4 text-primary" />
@@ -198,12 +198,12 @@ export function LandingFeatures() {
                   </ol>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid auto-rows-fr gap-3 sm:grid-cols-2">
                   {t.cards.map((card, i) => (
                     <div
                       key={card.title}
                       className={cn(
-                        "rounded-2xl border border-white/10 bg-card p-5",
+                        "flex h-full flex-col rounded-2xl border border-white/10 bg-card p-5",
                         i === 0 && "sm:col-span-2",
                       )}
                     >

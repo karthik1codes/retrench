@@ -24,8 +24,8 @@ export function SectionCards({
     : "No runs yet";
 
   return (
-    <div className="grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
-      <Card className="@container/card">
+    <div className="grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:h-full *:data-[slot=card]:shadow-xs sm:grid-cols-2 sm:px-6 xl:grid-cols-4">
+      <Card className="@container/card flex flex-col">
         <CardHeader>
           <CardDescription>Live signals</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
@@ -35,7 +35,7 @@ export function SectionCards({
             <Badge variant="outline">Graph</Badge>
           </CardAction>
         </CardHeader>
-        <CardFooter className="flex-col items-start gap-1.5 text-sm">
+        <CardFooter className="mt-auto flex-col items-start gap-1.5 text-sm">
           <div className="line-clamp-1 flex gap-2 font-medium">
             Active triggers <TrendingUpIcon className="size-4" />
           </div>
@@ -44,7 +44,7 @@ export function SectionCards({
           </div>
         </CardFooter>
       </Card>
-      <Card className="@container/card">
+      <Card className="@container/card flex flex-col">
         <CardHeader>
           <CardDescription>Drafts ready</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
@@ -54,12 +54,12 @@ export function SectionCards({
             <Badge variant="outline">Review</Badge>
           </CardAction>
         </CardHeader>
-        <CardFooter className="flex-col items-start gap-1.5 text-sm">
+        <CardFooter className="mt-auto flex-col items-start gap-1.5 text-sm">
           <div className="font-medium">Waiting for you to send</div>
           <div className="text-muted-foreground">Never auto-sent</div>
         </CardFooter>
       </Card>
-      <Card className="@container/card">
+      <Card className="@container/card flex flex-col">
         <CardHeader>
           <CardDescription>Companies</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
@@ -69,12 +69,12 @@ export function SectionCards({
             <Badge variant="outline">Tracked</Badge>
           </CardAction>
         </CardHeader>
-        <CardFooter className="flex-col items-start gap-1.5 text-sm">
+        <CardFooter className="mt-auto flex-col items-start gap-1.5 text-sm">
           <div className="font-medium">In the watch graph</div>
           <div className="text-muted-foreground">Unique domains / accounts</div>
         </CardFooter>
       </Card>
-      <Card className="@container/card">
+      <Card className="@container/card flex flex-col">
         <CardHeader>
           <CardDescription>Last scout run</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
@@ -86,7 +86,7 @@ export function SectionCards({
             </Badge>
           </CardAction>
         </CardHeader>
-        <CardFooter className="flex-col items-start gap-1.5 text-sm">
+        <CardFooter className="mt-auto flex-col items-start gap-1.5 text-sm">
           <div className="font-medium truncate max-w-full">{lastRunLabel}</div>
           <div className="text-muted-foreground truncate max-w-full">
             {stats.last_run_id || "Run a scout to populate"}

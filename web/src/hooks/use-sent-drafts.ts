@@ -6,6 +6,7 @@ import {
   loadSentDrafts,
   markGmailVerified,
   pendingFollowUps,
+  regeneratePendingFollowUps,
   type FollowUpStatus,
   type SentChannel,
   type SentDraft,
@@ -74,6 +75,10 @@ export function useSentDrafts() {
     [],
   );
 
+  const regenerateFollowUps = useCallback((sentId: string) => {
+    setDrafts(regeneratePendingFollowUps(sentId));
+  }, []);
+
   const remove = useCallback((id: string) => {
     setDrafts(deleteSentDraft(id));
   }, []);
@@ -87,6 +92,7 @@ export function useSentDrafts() {
     markSent,
     setFollowUp,
     setGmailVerified,
+    regenerateFollowUps,
     remove,
     refresh,
   };

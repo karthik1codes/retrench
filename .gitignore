@@ -36,3 +36,5 @@ Thumbs.db
 .entire/sessions/
 .retrench/
 *.log
+.vercel
+.env*

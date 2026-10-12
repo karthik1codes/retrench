@@ -924,7 +924,7 @@ export function ScoutStudio() {
     <div className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 py-2 sm:px-4 sm:py-3">
       <OutreachPermissionDialog gmailConnected={session?.gmailConnected} />
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h1 className="truncate text-base font-semibold tracking-tight">
               Company scout
@@ -939,15 +939,15 @@ export function ScoutStudio() {
             current={flowStep}
             searching={loading}
             onStepChange={handleFlowStep}
-            className="max-w-sm shrink-0"
+            className="w-full max-w-none sm:max-w-sm sm:shrink-0"
           />
         </div>
 
-        <div className="grid items-start gap-3 lg:grid-cols-2">
-          <div className="flex flex-col gap-3">
+        <div className="grid items-stretch gap-3 lg:grid-cols-2">
+          <div className="flex min-w-0 flex-col gap-3">
             <Card size="sm" className="shadow-none">
               <CardContent className="flex flex-col gap-2">
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
@@ -960,7 +960,7 @@ export function ScoutStudio() {
                   <Button
                     disabled={loading}
                     onClick={() => void runScout()}
-                    className="shrink-0"
+                    className="w-full shrink-0 sm:w-auto"
                   >
                     {loading ? "Scouting…" : "Run scout"}
                   </Button>
@@ -1313,9 +1313,9 @@ export function ScoutStudio() {
           <Card
             size="sm"
             className={cn(
-              "flex flex-col gap-0 overflow-hidden shadow-none lg:sticky lg:top-2",
+              "flex min-w-0 flex-col gap-0 overflow-hidden shadow-none lg:sticky lg:top-2",
               selected?.draft_body || subject || body
-                ? "max-h-[min(82vh,48rem)] min-h-[28rem]"
+                ? "max-h-[min(82vh,48rem)] min-h-[22rem] sm:min-h-[28rem]"
                 : "min-h-48",
             )}
           >

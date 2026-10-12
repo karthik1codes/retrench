@@ -69,8 +69,8 @@ export function Watchlist({ signals }: { signals: SignalItem[] }) {
           </p>
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-          <ul className="space-y-2">
+        <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-8">
+          <ul className="min-w-0 space-y-2">
             {signals.map((s) => {
               const selected = s.id === current?.id;
               return (
@@ -105,9 +105,9 @@ export function Watchlist({ signals }: { signals: SignalItem[] }) {
             })}
           </ul>
 
-          <aside className="lg:sticky lg:top-20 lg:self-start">
+          <aside className="min-w-0 lg:sticky lg:top-20 lg:self-start">
             {current ? (
-              <Card className="shadow-none">
+              <Card className="h-full shadow-none">
                 <CardHeader>
                   <CardDescription>{current.domain}</CardDescription>
                   <CardTitle className="font-heading text-2xl">

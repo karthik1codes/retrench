@@ -192,8 +192,8 @@ export function LandingHero() {
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-white/8 bg-background/50 p-4">
+                  <div className="mt-5 grid auto-rows-fr gap-3 sm:grid-cols-2">
+                    <div className="flex h-full flex-col rounded-xl border border-white/8 bg-background/50 p-4">
                       <p className="text-xs text-muted-foreground">
                         Live metrics
                       </p>
@@ -207,7 +207,7 @@ export function LandingHero() {
                         Evidence-backed · inbox-safe
                       </p>
                     </div>
-                    <div className="rounded-xl border border-white/8 bg-background/50 p-4">
+                    <div className="flex h-full flex-col rounded-xl border border-white/8 bg-background/50 p-4">
                       <p className="text-xs text-muted-foreground">Throughput</p>
                       <p className="mt-3 text-xs text-muted-foreground">
                         Signals this week

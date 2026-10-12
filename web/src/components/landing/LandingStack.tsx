@@ -35,9 +35,12 @@ export function LandingStack() {
         <p className="text-center text-xs text-muted-foreground">
           Built on the neatHack stack
         </p>
-        <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
+        <ul className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
           {STACK.map((item) => (
-            <li key={item.name} className="text-center">
+            <li
+              key={item.name}
+              className="flex min-h-[4.5rem] flex-col items-center justify-center rounded-xl border border-white/8 bg-card/40 px-3 py-4 text-center"
+            >
               <a
                 href={item.href}
                 target="_blank"
@@ -46,7 +49,7 @@ export function LandingStack() {
               >
                 {item.name}
               </a>
-              <p className="mt-1 text-[11px] text-muted-foreground/70">
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground/70">
                 {item.role}
               </p>
             </li>

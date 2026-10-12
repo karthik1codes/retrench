@@ -22,7 +22,7 @@ export function SignalsTable({
 }) {
   if (error && !signals.length) {
     return (
-      <div className="mx-4 rounded-lg border border-border px-4 py-10 text-center text-sm text-muted-foreground lg:mx-6">
+      <div className="mx-4 rounded-lg border border-border px-4 py-10 text-center text-sm text-muted-foreground sm:mx-6">
         {error}
       </div>
     );
@@ -30,7 +30,7 @@ export function SignalsTable({
 
   if (!signals.length) {
     return (
-      <div className="mx-4 rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground lg:mx-6">
+      <div className="mx-4 rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground sm:mx-6">
         No signals in the graph yet.{" "}
         <Link href="/scout" className="underline underline-offset-2">
           Run a scout
@@ -40,8 +40,8 @@ export function SignalsTable({
   }
 
   return (
-    <div className="mx-4 overflow-hidden rounded-lg border border-border lg:mx-6">
-      <Table>
+    <div className="mx-4 overflow-x-auto rounded-lg border border-border sm:mx-6">
+      <Table className="min-w-[40rem]">
         <TableHeader>
           <TableRow>
             <TableHead>Company</TableHead>

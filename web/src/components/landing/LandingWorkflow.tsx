@@ -68,8 +68,8 @@ export function LandingWorkflow() {
           </Button>
         </div>
 
-        <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_0.9fr_1fr]">
-          <div className="flex flex-col gap-2">
+        <div className="mt-8 grid items-stretch gap-4 md:grid-cols-2 lg:grid-cols-[1fr_0.9fr_1fr]">
+          <div className="flex min-w-0 flex-col gap-2">
             {INPUTS.map((item) => {
               const on = connected.includes(item.id);
               return (
@@ -100,7 +100,7 @@ export function LandingWorkflow() {
             })}
           </div>
 
-          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/15 bg-card/60 p-6 text-center">
+          <div className="flex min-w-0 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/15 bg-card/60 p-6 text-center md:col-span-2 lg:col-span-1">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">
               Endpoint
             </p>
@@ -131,7 +131,7 @@ export function LandingWorkflow() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-2 md:col-span-2 lg:col-span-1">
             {OUTPUTS.map((item) => (
               <div
                 key={item.id}

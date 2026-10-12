@@ -13,18 +13,18 @@ export default async function DashboardPage() {
   const overview = await fetchOverview();
 
   return (
-    <div className="@container/main flex flex-1 flex-col gap-2">
+    <div className="@container/main flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
         {overview.error ? (
-          <p className="px-4 text-sm text-muted-foreground lg:px-6">
+          <p className="px-4 text-sm text-muted-foreground sm:px-6">
             {overview.error}
           </p>
         ) : null}
         <SectionCards stats={overview.stats} error={overview.error} />
-        <div className="px-4 lg:px-6">
+        <div className="px-4 sm:px-6">
           <ChartAreaInteractive activity={overview.activity} />
         </div>
-        <div className="px-4 lg:px-6">
+        <div className="px-4 sm:px-6">
           <h2 className="mb-3 text-base font-medium">
             Signals this month
             {overview.month ? (
