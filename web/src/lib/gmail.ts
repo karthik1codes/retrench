@@ -44,9 +44,9 @@ export async function resolveGmailAccessToken(
   });
   if (!token) return null;
 
-  let accessToken = token.accessToken as string | undefined;
-  let refreshToken = token.refreshToken as string | undefined;
-  let expiresAt = token.expiresAt as number | undefined;
+  const accessToken = token.accessToken as string | undefined;
+  const refreshToken = token.refreshToken as string | undefined;
+  const expiresAt = token.expiresAt as number | undefined;
 
   if (
     accessToken &&

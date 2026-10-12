@@ -297,7 +297,7 @@ export function ScoutStudio() {
   const [workspaceTab, setWorkspaceTab] = useState("draft");
   const [composeOpened, setComposeOpened] = useState(false);
   const [draftApproved, setDraftApproved] = useState(false);
-  const [creditsSpent, setCreditsSpent] = useState<number | null>(null);
+  const [, setCreditsSpent] = useState<number | null>(null);
   const [prefs, setPrefs] = useState<OutreachPrefs>(() => loadOutreachPrefs());
   const [verifying, setVerifying] = useState(false);
   const [sending, setSending] = useState(false);

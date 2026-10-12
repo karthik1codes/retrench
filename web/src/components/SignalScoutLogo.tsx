@@ -11,7 +11,6 @@ type SignalScoutLogoProps = {
 /** Shared Signal Scout brand mark — red dish + signal arcs. */
 export function SignalScoutLogo({
   className,
-  iconClassName: _iconClassName,
   markOnly = true,
 }: SignalScoutLogoProps) {
   return (
