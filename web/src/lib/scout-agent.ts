@@ -11,6 +11,7 @@ export type MatchedCompany = {
   domain?: string;
   industry?: string | null;
   description?: string | null;
+  logo_url?: string | null;
   employee_range?: string | null;
   headcount?: number | string | null;
   funding_stage?: string | null;
@@ -43,6 +44,8 @@ export type ScoutContext = {
   month?: string;
   signals_created?: number;
   drafts_created?: number;
+  suppressed_count?: number;
+  suppressed?: { signal_id?: string; company_id?: string; reason?: string }[];
   signals_this_month?: number;
   signals_in_graph?: number;
   note?: string;
@@ -74,6 +77,9 @@ export type DraftRow = {
   draft_id?: string | null;
   draft_body?: string | null;
   confidence?: number | null;
+  evidence_hashes?: string[] | null;
+  suppression_reason?: string | null;
+  implication?: string | null;
 };
 
 function headers(): HeadersInit {
@@ -318,6 +324,51 @@ function demoDrafts(company: string) {
       ? `Subject: ${hit.draft.subject}\n\n${hit.draft.body}`
       : null,
     confidence: hit.draft?.confidence ?? null,
+    evidence_hashes: hit.draft ? [`demo-ev-${hit.id}`] : [],
   }));
   return { company, items, demo: true };
+}
+
+export type DraftAction = "approve" | "edit" | "reject";
+
+export async function logDraftAction(input: {
+  action: DraftAction;
+  draft_id?: string | null;
+  signal_id?: string | null;
+  company?: string | null;
+  domain?: string | null;
+  subject?: string | null;
+  body?: string | null;
+}): Promise<{ status: string; logged?: boolean; error?: string }> {
+  if (!AGENT) {
+    return { status: "ok", logged: false, error: "SCOUT_AGENT_URL unset" };
+  }
+  try {
+    const res = await fetch(`${AGENT}/draft-action`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(input),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+    const data = (await readJson(res)) as {
+      status?: string;
+      logged?: boolean;
+      error?: string;
+    };
+    if (!res.ok) {
+      return {
+        status: "failed",
+        logged: false,
+        error: data.error || `HTTP ${res.status}`,
+      };
+    }
+    return { status: data.status || "ok", logged: data.logged };
+  } catch (e) {
+    return {
+      status: "failed",
+      logged: false,
+      error: e instanceof Error ? e.message : "draft-action failed",
+    };
+  }
 }

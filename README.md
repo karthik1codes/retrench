@@ -22,24 +22,73 @@ segment.yaml → Signal Agent (CrustData + graph diff)
 
 ## Quick start (local)
 
-```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-source .venv/bin/activate
-pip install -e ".[dev]"
+**PowerShell**
 
-# memory graph for tests / offline
-set NEO4J_URI=memory   # PowerShell: $env:NEO4J_URI="memory"
+```powershell
+cd D:\neatlogs
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+Copy-Item .env.example .env.local   # fill CRUSTDATA_API_KEY, OPENROUTER_*, etc.
+
+# Offline tests (no Neo4j)
+$env:NEO4J_URI="memory"
 pytest -q
 
-# full cycle with in-memory graph + mocked path via tests;
-# live cycle needs Neo4j + CRUSTDATA_API_KEY:
+# Live Neo4j + one cycle
 docker compose -f deploy/docker-compose.yml up -d neo4j
 $env:NEO4J_URI="bolt://localhost:7687"
 $env:NEO4J_PASSWORD="signalscout"
-# put keys in .env.local
 python -m signalscout run --config segment.yaml
 ```
+
+**Bash**
+
+```bash
+cd /path/to/neatlogs
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env.local   # fill keys
+NEO4J_URI=memory pytest -q
+docker compose -f deploy/docker-compose.yml up -d neo4j
+python -m signalscout run --config segment.yaml
+```
+
+### Web UI + agent API (targets / scout)
+
+See [`web/README.md`](./web/README.md). Short path:
+
+```powershell
+# Terminal A — agent API (repo root)
+$env:PYTHONPATH="D:\neatlogs\src"
+python -m signalscout serve --host 127.0.0.1 --port 8787
+
+# Terminal B — Next.js
+cd web
+# web/.env.local → SCOUT_AGENT_URL=http://127.0.0.1:8787
+npm run dev
+```
+
+| Mode | Meaning |
+| --- | --- |
+| `NEO4J_URI=memory` | In-memory graph (tests / offline serve) |
+| `NEO4J_URI=bolt://…` | Live Neo4j |
+| `SCOUT_FALLBACK_DEMO=1` | UI fixtures when agent unreachable (disclose in demo) |
+
+**Limitations (disclose):** interactive scout may emit a synthetic `profile` signal when classic triggers miss; `/person/contact/enrich` is 403 → we use `/person/enrich`; scheduled cycles suppress re-draft if the same company was drafted ≤7 days (`do-not-contact`) or `Company.support_risk` is set.
+
+## vs LangChain GTM agent
+
+We studied [How we built LangChain’s GTM Agent](https://www.langchain.com/blog/how-we-built-langchains-gtm-agent) and stole **trust + HITL + evals**, not their stack.
+
+| Their pattern | Signal Scout |
+| --- | --- |
+| Do-not-send (recent touch / support) | Scheduled DraftAgent: `recent_touch` ≤7d + stub `support_risk` → signal `suppressed` |
+| Slack Approve / Edit / Cancel | Scout workspace Approve / Edit / Reject → `POST /draft-action` → neatlogs |
+| Reasoning + sources | Why now + `CITES` evidence hashes in UI |
+| Evals-first CI | `pytest tests/test_gtm_golden.py` (funding / surge / exec / duplicate / suppress) |
+
+**Out of scope (on purpose):** Salesforce, Gong, BigQuery, Slack bot, 48h auto-send SLA, per-rep style memory, Deep Agents FS. Scout never sends email — human opens Gmail/Outlook after Approve.
 
 ## CLI
 
@@ -80,8 +129,9 @@ sudo systemctl start signal-scout.service
 2. Kill mid-run → next timer resumes via `:Signal` / `:Run` (MERGE idempotent)  
 3. CrustData 429 → backoff in client; run marked failed; next succeeds  
 4. `pytest tests/test_draft_cites.py` — 20 drafts, all CITES evidence  
-5. `--dry-run` — no external API  
-6. `:Run.credits_spent` ≤ `credit_budget_per_cycle` in `segment.yaml`  
+5. `pytest tests/test_gtm_golden.py` — GTM golden cases (cites, idempotent, suppress)  
+6. `--dry-run` — no external API  
+7. `:Run.credits_spent` ≤ `credit_budget_per_cycle` in `segment.yaml`  
 
 ```bash
 pytest -q

@@ -18,6 +18,8 @@ from signalscout.graph_memory import MemoryGraphStore
 
 def test_twenty_drafts_all_cite_evidence(tmp_path):
     cfg = load_segment("segment.yaml")
+    # Citation fixture seeds 20 companies; lift the 5/cycle Research/Draft cap.
+    cfg = cfg.model_copy(update={"max_signals_per_cycle": 50})
     graph = MemoryGraphStore()
     graph.upsert_segment("seg-test", cfg.dsl_text)
     crust = CrustDataClient(api_key="test", ledger=CreditLedger())

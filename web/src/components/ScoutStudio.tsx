@@ -2,8 +2,10 @@
 
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { ScoutFlowStepper } from "@/components/ScoutFlowStepper";
 import { TEST_COMPANIES } from "@/data/test-companies";
 import type {
   ContactRow,
@@ -84,6 +87,25 @@ function companyWebsite(domain?: string | null) {
   };
 }
 
+function companyLogoSrc(
+  domain?: string | null,
+  logoUrl?: string | null,
+): string | null {
+  if (logoUrl && /^https?:\/\//i.test(logoUrl)) return logoUrl;
+  const host = companyWebsite(domain)?.host;
+  if (!host) return null;
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
+}
+
+function companyInitials(name?: string | null, domain?: string | null) {
+  const source = (name || domain || "?").trim();
+  const parts = source.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+  }
+  return source.slice(0, 2).toUpperCase();
+}
+
 function companyFacts(c?: MatchedCompany | null) {
   if (!c) return [];
   const facts: string[] = [];
@@ -135,18 +157,50 @@ function overviewRows(c?: MatchedCompany | null) {
   return rows;
 }
 
+function scrubVendorMeta(text: string) {
+  return text
+    .replace(/\blive company profile from CrustData\b/gi, "")
+    .replace(/\bfrom CrustData\b/gi, "")
+    .replace(/\bCrustData\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s:;|.-]+|[\s:;|.-]+$/g, "")
+    .trim();
+}
+
 function parseSignalText(summary?: string | null, implication?: string | null) {
-  let trigger = (summary || "").trim();
-  let why = (implication || "").trim();
+  let trigger = scrubVendorMeta((summary || "").trim());
+  let why = scrubVendorMeta((implication || "").trim());
   const marker = /\|?\s*Why it matters:\s*/i;
   if (!why && marker.test(trigger)) {
     const parts = trigger.split(marker);
-    trigger = (parts[0] || "").trim();
-    why = (parts[1] || "").trim();
+    trigger = scrubVendorMeta((parts[0] || "").trim());
+    why = scrubVendorMeta((parts[1] || "").trim());
   }
-  // Drop "Company (domain):" prefix noise for display when redundant
-  trigger = trigger.replace(/^[^:]+\([^)]+\):\s*/i, "").trim() || trigger;
+  // Drop "Company (domain):" / "snapshot:" prefix noise when redundant
+  trigger =
+    trigger
+      .replace(/^[^:]+\([^)]+\):\s*/i, "")
+      .replace(/^[^:]+\s+snapshot:\s*/i, "")
+      .trim() || trigger;
+  if (!trigger) trigger = "Company snapshot";
+  // Drop implication that only talks about data vendors / profile availability
+  if (
+    why &&
+    /online presence|readiness for engagement|data (vendor|source)|enrichment/i.test(
+      why,
+    )
+  ) {
+    why = "";
+  }
   return { trigger, why };
+}
+
+function pickBestDraft(rows: DraftRow[]) {
+  const withDraft = rows.filter((r) => r.draft_body);
+  const prefer = withDraft.find(
+    (r) => r.type && !["profile", "signal"].includes(String(r.type)),
+  );
+  return prefer || withDraft[0] || rows[0] || null;
 }
 
 function monthLabel(ym?: string | null) {
@@ -190,6 +244,53 @@ export function ScoutStudio() {
   }>({ total: 0 });
   const [targetsLoading, setTargetsLoading] = useState(true);
   const [activeIndustry, setActiveIndustry] = useState<string>("all");
+  const [hitlBusy, setHitlBusy] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState("draft");
+  const [composeOpened, setComposeOpened] = useState(false);
+  const [draftApproved, setDraftApproved] = useState(false);
+  const [creditsSpent, setCreditsSpent] = useState<number | null>(null);
+
+  async function recordHitl(
+    action: "approve" | "edit" | "reject",
+    opts?: { silent?: boolean },
+  ) {
+    setHitlBusy(true);
+    try {
+      const res = await fetch("/api/draft-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          draft_id: selected?.draft_id,
+          signal_id: selected?.signal_id,
+          company: selected?.company || matched?.name || query.trim(),
+          domain: selected?.domain || matched?.domain || query.trim(),
+          subject,
+          body,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!opts?.silent) {
+        if (data.logged) {
+          toast.success(
+            action === "approve"
+              ? "Approved — logged to neatlogs"
+              : action === "reject"
+                ? "Rejected — logged"
+                : "Edit logged",
+          );
+        } else if (action === "approve") {
+          toast.success("Approved");
+        } else if (action === "reject") {
+          toast.message("Rejected");
+        }
+      }
+    } catch {
+      if (!opts?.silent) toast.error("Could not log HITL action");
+    } finally {
+      setHitlBusy(false);
+    }
+  }
 
   const loadTargets = useCallback(async () => {
     try {
@@ -238,6 +339,7 @@ export function ScoutStudio() {
     const parsed = parseDraft(selected?.draft_body);
     setSubject(parsed.subject);
     setBody(parsed.text);
+    setDraftApproved(false);
   }, [selected?.signal_id, selected?.draft_id, selected?.draft_body]);
 
   const visibleCompanies: TargetCompany[] = useMemo(() => {
@@ -262,6 +364,10 @@ export function ScoutStudio() {
     setContacts([]);
     setMatched(null);
     setContext(null);
+    setCreditsSpent(null);
+    setDraftApproved(false);
+    setComposeOpened(false);
+    setWorkspaceTab("draft");
     try {
       const looksDomain = /^[\w.-]+\.[a-zA-Z]{2,}$/.test(q);
       const res = await fetch("/api/scout", {
@@ -302,7 +408,10 @@ export function ScoutStudio() {
       setItems(next);
       setMatched(safeCompany);
       setContext(ctx);
-      setSelected(next.find((x) => x.draft_body) || next[0] || null);
+      setCreditsSpent(
+        typeof data.credits_spent === "number" ? data.credits_spent : null,
+      );
+      setSelected(pickBestDraft(next));
 
       const monthCount =
         ctx?.signals_this_month ?? ctx?.signals_in_graph ?? next.length;
@@ -422,6 +531,7 @@ export function ScoutStudio() {
       "_blank",
       "noopener,noreferrer",
     );
+    setComposeOpened(true);
     toast.success("Gmail compose opened");
   }
 
@@ -436,10 +546,12 @@ export function ScoutStudio() {
       "_blank",
       "noopener,noreferrer",
     );
+    setComposeOpened(true);
   }
 
   function openMailApp() {
     if (!requireDraftReady()) return;
+    setComposeOpened(true);
     window.location.href = mailtoUrl({
       to: to.trim(),
       subject: subject.trim() || "Quick note",
@@ -451,19 +563,11 @@ export function ScoutStudio() {
   const facts = companyFacts(company);
   const rows = overviewRows(company);
   const site = companyWebsite(company?.domain || query.trim());
+  const logoSrc = companyLogoSrc(
+    company?.domain || query.trim(),
+    company?.logo_url,
+  );
   const scouted: ScoutedContent | undefined = context?.scouted;
-  const signalContext = context?.signals?.length
-    ? context.signals
-    : items.map((i) => ({
-        type: i.type || i.state,
-        summary: i.summary,
-        implication: undefined as string | undefined,
-        severity: i.severity,
-        state: i.state,
-        detected_at: i.detected_at,
-        has_draft: Boolean(i.draft_body),
-        confidence: i.confidence,
-      }));
   const thisMonth = monthLabel(context?.month);
   const companyTitle = (() => {
     const n = company?.name || query.trim();
@@ -471,6 +575,50 @@ export function ScoutStudio() {
       ? n
       : site?.host || "Matched company";
   })();
+  const draftItems = useMemo(
+    () => items.filter((i) => Boolean(i.draft_body)),
+    [items],
+  );
+  const draftIndex = draftItems.findIndex(
+    (d) =>
+      d.draft_id === selected?.draft_id ||
+      d.signal_id === selected?.signal_id,
+  );
+  const activeDraftIndex = draftIndex >= 0 ? draftIndex : 0;
+
+  function selectDraftByOffset(delta: number) {
+    if (draftItems.length === 0) return;
+    const base = draftIndex >= 0 ? draftIndex : 0;
+    const next = (base + delta + draftItems.length) % draftItems.length;
+    setSelected(draftItems[next] || null);
+    setWorkspaceTab("draft");
+  }
+
+  const flowStep = (() => {
+    if (composeOpened) return 5;
+    if (workspaceTab === "send" || to.trim()) return 3;
+    if (selected?.draft_body || subject || body) return 2;
+    if (loading || matched || context) return 1;
+    return 1;
+  })();
+
+  function handleFlowStep(step: number) {
+    if (step <= 1) {
+      setWorkspaceTab("draft");
+      return;
+    }
+    if (step === 2) {
+      setWorkspaceTab("draft");
+      return;
+    }
+    if (step >= 3) {
+      if (!selected?.draft_body && !subject.trim() && !body.trim()) {
+        toast.message("Pick a signal with a draft first");
+        return;
+      }
+      setWorkspaceTab("send");
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 md:py-8">
@@ -488,8 +636,25 @@ export function ScoutStudio() {
         </p>
       </div>
 
+      <Card className="mb-6 shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Scout progress</CardTitle>
+          <CardDescription>
+            Compact steps — company stays visible; slide drafts in the workspace
+            only
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <ScoutFlowStepper
+            current={flowStep}
+            searching={loading}
+            onStepChange={handleFlowStep}
+          />
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           <Card className="shadow-none">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Target company</CardTitle>
@@ -497,7 +662,7 @@ export function ScoutStudio() {
                 Prefer a domain for the best match
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="flex flex-col gap-3">
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   value={query}
@@ -525,33 +690,50 @@ export function ScoutStudio() {
           {(matched || context) && (
             <Card className="shadow-none">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">{companyTitle}</CardTitle>
-                <CardDescription>
-                  {context?.note || "Live company overview from this scout"}
-                </CardDescription>
+                <div className="flex items-start gap-3">
+                  <Avatar
+                    size="lg"
+                    className="size-12 rounded-lg after:rounded-lg"
+                  >
+                    {logoSrc ? (
+                      <AvatarImage
+                        src={logoSrc}
+                        alt=""
+                        className="rounded-lg object-contain p-1"
+                      />
+                    ) : null}
+                    <AvatarFallback className="rounded-lg text-sm font-semibold">
+                      {companyInitials(companyTitle, site?.host)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="text-base leading-tight">
+                      {companyTitle}
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      {site ? (
+                        <a
+                          href={site.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          {site.host}
+                        </a>
+                      ) : (
+                        context?.note || "Live company overview"
+                      )}
+                    </CardDescription>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-5">
-                <div className="space-y-3">
+              <CardContent className="flex flex-col gap-5">
+                <div className="flex flex-col gap-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Company overview
+                    Company info
                   </p>
-                  {site ? (
-                    <a
-                      href={site.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
-                    >
-                      {site.host}
-                    </a>
-                  ) : null}
-                  {company?.description ? (
-                    <p className="text-sm leading-relaxed text-foreground/90">
-                      {company.description}
-                    </p>
-                  ) : null}
                   {rows.length > 0 ? (
-                    <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
                       {rows.map((row) => (
                         <div key={row.label} className="min-w-0">
                           <dt className="text-xs text-muted-foreground">
@@ -569,12 +751,17 @@ export function ScoutStudio() {
                         </Badge>
                       ))}
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Profile saved. More fields appear when CrustData returns
-                      industry, funding, or headcount.
+                  ) : null}
+                  {company?.description ? (
+                    <p className="line-clamp-3 text-sm leading-relaxed text-foreground/90">
+                      {company.description}
                     </p>
-                  )}
+                  ) : !rows.length && !facts.length ? (
+                    <p className="text-sm text-muted-foreground">
+                      Profile saved. Industry, funding, and headcount appear
+                      when the source returns them.
+                    </p>
+                  ) : null}
                   {scouted?.fetched_at ? (
                     <p className="text-xs text-muted-foreground">
                       Fetched {formatWhen(scouted.fetched_at)}
@@ -599,59 +786,90 @@ export function ScoutStudio() {
                   </div>
                   <div className="rounded-lg border border-border px-2 py-2">
                     <p className="text-lg font-semibold tabular-nums">
-                      {context?.drafts_created ??
-                        items.filter((i) => i.draft_body).length}
+                      {context?.drafts_created ?? draftItems.length}
                     </p>
                     <p className="text-muted-foreground">Drafts</p>
                   </div>
                 </div>
 
                 <div>
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Recent signals · {thisMonth}
                   </p>
-                  {signalContext.length > 0 ? (
-                    <ul className="space-y-3">
-                      {signalContext.slice(0, 8).map((s, idx) => {
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Select a signal to open its draft — use Prev/Next in the
+                    workspace to slide drafts only
+                    {(context?.suppressed_count ?? 0) > 0
+                      ? ` · ${context?.suppressed_count} skipped (do-not-contact)`
+                      : ""}
+                  </p>
+                  {items.length > 0 ? (
+                    <ul className="flex flex-col gap-2">
+                      {items.map((row, idx) => {
                         const parsed = parseSignalText(
-                          s.summary,
-                          s.implication,
+                          row.summary,
+                          row.implication,
                         );
+                        const whyShort =
+                          parsed.why && parsed.why.length > 160
+                            ? `${parsed.why.slice(0, 157).trim()}…`
+                            : parsed.why;
+                        const active = selected?.signal_id === row.signal_id;
                         return (
-                          <li
-                            key={`${s.type}-${idx}-${parsed.trigger.slice(0, 24)}`}
-                            className="rounded-lg border border-border px-3 py-3 text-left"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                {(s.type || "signal").replace(/_/g, " ")}
-                              </span>
-                              {s.severity != null ? (
-                                <Badge variant="outline">{s.severity}</Badge>
-                              ) : null}
-                            </div>
-                            <p className="mt-2 text-sm font-medium leading-snug">
-                              {parsed.trigger || "Signal detected"}
-                            </p>
-                            {parsed.why ? (
-                              <div className="mt-2 rounded-md bg-secondary/40 px-3 py-2">
-                                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  Why it matters
-                                </p>
-                                <p className="mt-1 text-sm leading-relaxed text-foreground/90">
-                                  {parsed.why}
-                                </p>
+                          <li key={`${row.signal_id}-${row.draft_id ?? idx}`}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelected(row);
+                                if (row.draft_body) setWorkspaceTab("draft");
+                              }}
+                              className={cn(
+                                "flex w-full flex-col gap-2 rounded-lg border px-3 py-3 text-left transition",
+                                active
+                                  ? "border-primary bg-accent/25"
+                                  : "border-border hover:bg-secondary/40",
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                  {(row.type === "profile"
+                                    ? "snapshot"
+                                    : row.type || "signal"
+                                  ).replace(/_/g, " ")}
+                                </span>
+                                <Badge variant="outline">{row.severity}</Badge>
                               </div>
-                            ) : null}
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              {[
-                                s.state,
-                                s.has_draft ? "draft ready" : null,
-                                formatWhen(s.detected_at),
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </p>
+                              <p className="text-sm font-medium leading-snug">
+                                {parsed.trigger || "Signal detected"}
+                              </p>
+                              {whyShort ? (
+                                <div className="rounded-md bg-secondary/40 px-2.5 py-2">
+                                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    Why it matters
+                                  </p>
+                                  <p className="mt-1 text-sm leading-relaxed text-foreground/90">
+                                    {whyShort}
+                                  </p>
+                                </div>
+                              ) : null}
+                              <p
+                                className={cn(
+                                  "text-xs",
+                                  row.draft_body
+                                    ? "font-medium text-primary"
+                                    : "text-muted-foreground",
+                                )}
+                              >
+                                {[
+                                  row.draft_body
+                                    ? `Draft ready · confidence ${row.confidence ?? "—"}`
+                                    : "No draft yet",
+                                  formatWhen(row.detected_at),
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </p>
+                            </button>
                           </li>
                         );
                       })}
@@ -659,7 +877,7 @@ export function ScoutStudio() {
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       No recent signals for this company yet. Run scout again —
-                      a draft appears in the workspace when a signal qualifies.
+                      results appear here so you can pick one to draft.
                     </p>
                   )}
                 </div>
@@ -786,76 +1004,159 @@ export function ScoutStudio() {
             </CardContent>
           </Card>
 
-          <Card className="shadow-none">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Signals</CardTitle>
-              <CardDescription>
-                Select a result to review the draft
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {items.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-                  No draftable signals yet. Company context above still reflects
-                  what the agent fetched.
-                </div>
-              ) : (
-                <ul className="space-y-2">
-                  {items.map((row) => (
-                    <li key={`${row.signal_id}-${row.draft_id}`}>
-                      <button
-                        type="button"
-                        onClick={() => setSelected(row)}
-                        className={cn(
-                          "flex w-full flex-col gap-1 rounded-lg border px-3 py-3 text-left transition",
-                          selected?.signal_id === row.signal_id
-                            ? "border-primary bg-accent/25"
-                            : "border-border hover:bg-secondary/50",
-                        )}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium">{row.company}</span>
-                          <Badge variant="secondary">{row.severity}</Badge>
-                        </div>
-                        <span className="line-clamp-2 text-xs text-muted-foreground">
-                          {parseSignalText(row.summary).trigger || row.summary}
-                        </span>
-                        <span className="text-xs font-medium text-primary">
-                          {row.draft_body ? "Draft ready" : "No draft"}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
         </div>
 
         <Card className="shadow-none lg:sticky lg:top-20 lg:self-start">
-          <CardHeader>
-            <CardDescription>
-              {selected?.domain || matched?.domain
-                ? `${selected?.domain || matched?.domain}${
-                    selected?.confidence != null
-                      ? ` · confidence ${selected.confidence}`
-                      : ""
-                  }`
-                : "Draft workspace"}
-            </CardDescription>
-            <CardTitle className="font-heading text-2xl">
-              {selected?.company || matched?.name || "Waiting for a scout"}
-            </CardTitle>
+          <CardHeader className="gap-3">
+            <div className="flex items-start gap-3">
+              <Avatar
+                size="lg"
+                className="size-11 rounded-lg after:rounded-lg"
+              >
+                {logoSrc ? (
+                  <AvatarImage
+                    src={logoSrc}
+                    alt=""
+                    className="rounded-lg object-contain p-1"
+                  />
+                ) : null}
+                <AvatarFallback className="rounded-lg text-sm font-semibold">
+                  {companyInitials(
+                    selected?.company || companyTitle,
+                    selected?.domain || site?.host,
+                  )}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {(() => {
+                    const workspaceSite = companyWebsite(
+                      selected?.domain || matched?.domain || query.trim(),
+                    );
+                    if (!workspaceSite) return <span>Draft workspace</span>;
+                    return (
+                      <>
+                        <a
+                          href={workspaceSite.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          {workspaceSite.host}
+                        </a>
+                        {selected?.confidence != null ? (
+                          <span className="text-muted-foreground">
+                            · confidence {selected.confidence}
+                          </span>
+                        ) : null}
+                      </>
+                    );
+                  })()}
+                </CardDescription>
+                <CardTitle className="font-heading mt-1 text-xl leading-tight md:text-2xl">
+                  {selected?.company ||
+                    matched?.name ||
+                    companyTitle ||
+                    "Waiting for a scout"}
+                </CardTitle>
+              </div>
+            </div>
+            {selected?.summary ? (
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Why now: </span>
+                {parseSignalText(selected.summary, selected.implication)
+                  .trigger || selected.summary}
+              </p>
+            ) : null}
+            {draftItems.length > 0 ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-border px-2 py-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={draftItems.length < 2}
+                  onClick={() => selectDraftByOffset(-1)}
+                  aria-label="Previous draft"
+                >
+                  <ChevronLeftIcon data-icon="inline-start" />
+                  Prev
+                </Button>
+                <p className="text-xs tabular-nums text-muted-foreground">
+                  Draft {activeDraftIndex + 1} of {draftItems.length}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={draftItems.length < 2}
+                  onClick={() => selectDraftByOffset(1)}
+                  aria-label="Next draft"
+                >
+                  Next
+                  <ChevronRightIcon data-icon="inline-end" />
+                </Button>
+              </div>
+            ) : null}
           </CardHeader>
           <CardContent>
             {selected?.draft_body || subject || body ? (
-              <Tabs defaultValue="draft">
+              <Tabs
+                value={workspaceTab}
+                onValueChange={(value) => {
+                  if (value != null) setWorkspaceTab(String(value));
+                }}
+              >
                 <TabsList className="mb-4">
                   <TabsTrigger value="draft">Draft</TabsTrigger>
                   <TabsTrigger value="send">Send</TabsTrigger>
                 </TabsList>
-                <TabsContent value="draft" className="space-y-4">
-                  <div className="space-y-2">
+                <TabsContent value="draft" className="flex flex-col gap-4">
+                  <div className="rounded-lg border border-border bg-secondary/20 px-3 py-3">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Why now
+                    </p>
+                    <p className="mt-1 text-sm leading-relaxed">
+                      {parseSignalText(
+                        selected?.summary,
+                        selected?.implication,
+                      ).trigger ||
+                        selected?.summary ||
+                        "Signal-backed draft from this scout"}
+                    </p>
+                    {(selected?.evidence_hashes?.length || 0) > 0 ? (
+                      <div className="mt-3 flex flex-col gap-1.5">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Cited evidence
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(selected?.evidence_hashes || [])
+                            .slice(0, 4)
+                            .map((h) => (
+                              <Badge
+                                key={h}
+                                variant="outline"
+                                className="font-mono text-[10px]"
+                              >
+                                {h.length > 14 ? `${h.slice(0, 12)}…` : h}
+                              </Badge>
+                            ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {creditsSpent != null || draftApproved ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {[
+                          creditsSpent != null
+                            ? `Credits this scout: ${creditsSpent}`
+                            : null,
+                          draftApproved ? "HITL: approved" : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col gap-2">
                     <Label
                       htmlFor="draft-subject"
                       className="text-xs uppercase tracking-wide text-muted-foreground"
@@ -865,11 +1166,19 @@ export function ScoutStudio() {
                     <Input
                       id="draft-subject"
                       value={subject}
-                      onChange={(e) => setSubject(e.target.value)}
-                      placeholder="Email subject"
+                      onChange={(e) => {
+                        setSubject(e.target.value);
+                        setDraftApproved(false);
+                      }}
+                      onBlur={() => {
+                        if (selected?.draft_body) {
+                          void recordHitl("edit", { silent: true });
+                        }
+                      }}
+                      placeholder="Short, specific subject (no spam words)"
                     />
                   </div>
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <Label
                       htmlFor="draft-body"
                       className="text-xs uppercase tracking-wide text-muted-foreground"
@@ -880,26 +1189,71 @@ export function ScoutStudio() {
                       id="draft-body"
                       className="min-h-52 font-sans"
                       value={body}
-                      onChange={(e) => setBody(e.target.value)}
-                      placeholder="Write or edit your outreach…"
+                      onChange={(e) => {
+                        setBody(e.target.value);
+                        setDraftApproved(false);
+                      }}
+                      onBlur={() => {
+                        if (selected?.draft_body) {
+                          void recordHitl("edit", { silent: true });
+                        }
+                      }}
+                      placeholder="Plaintext, one clear ask — keep it human…"
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Edits apply to Copy and Open in Gmail / Outlook.
+                    Inbox-safe: short, specific, no links/hype. Approve then
+                    open Gmail/Outlook — Scout never auto-sends.
                   </p>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(
-                        `${subject.trim()}\n\n${body}`,
-                      );
-                      toast.success("Copied");
-                    }}
-                  >
-                    Copy draft
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      disabled={hitlBusy || !selected?.draft_body}
+                      onClick={() => {
+                        void (async () => {
+                          await recordHitl("approve");
+                          setDraftApproved(true);
+                          setWorkspaceTab("send");
+                        })();
+                      }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={hitlBusy}
+                      onClick={() => {
+                        void navigator.clipboard.writeText(
+                          `${subject.trim()}\n\n${body}`,
+                        );
+                        void recordHitl("edit");
+                        toast.success("Copied");
+                      }}
+                    >
+                      Copy · log edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={hitlBusy}
+                      onClick={() => {
+                        void (async () => {
+                          await recordHitl("reject");
+                          setDraftApproved(false);
+                          const rest = draftItems.filter(
+                            (d) => d.draft_id !== selected?.draft_id,
+                          );
+                          setSelected(rest[0] || null);
+                          if (!rest.length) {
+                            setSubject("");
+                            setBody("");
+                          }
+                        })();
+                      }}
+                    >
+                      Reject
+                    </Button>
+                  </div>
                 </TabsContent>
-                <TabsContent value="send" className="space-y-4">
+                <TabsContent value="send" className="flex flex-col gap-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <Label htmlFor="to">Recipient</Label>

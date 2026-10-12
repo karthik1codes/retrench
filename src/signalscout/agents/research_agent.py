@@ -28,14 +28,21 @@ class ResearchAgent:
             implication = llm_complete(
                 system=(
                     "You are a B2B GTM researcher. In 1-2 sentences, state the business "
-                    "implication of this trigger for outbound sales. Use only provided facts."
+                    "implication of this trigger for outbound sales. Use only provided facts. "
+                    "Never mention CrustData, enrichment vendors, or that a profile exists in a database — "
+                    "explain why the company/product/funding/hire matters for a sales conversation."
                 ),
-                user=f"Company: {sig.get('company_name')} ({sig.get('domain')})\nSignal: {sig.get('summary')}",
+                user=(
+                    f"Company: {sig.get('company_name')} ({sig.get('domain')})\n"
+                    f"Signal type: {sig.get('type')}\n"
+                    f"Signal: {sig.get('summary')}"
+                ),
                 metadata={
                     "agent": "research",
                     "company": sig.get("company_name"),
                     "signal_id": sig["id"],
                     "summary": sig.get("summary"),
+                    "type": sig.get("type"),
                 },
             )
             # bump slightly if implication produced

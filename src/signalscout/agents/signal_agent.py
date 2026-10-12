@@ -79,6 +79,12 @@ def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
         or raw.get("short_description")
     )
     employee_range = basic.get("employee_count_range") or raw.get("employee_count_range")
+    logo_url = _clean(
+        basic.get("logo_permalink")
+        or raw.get("logo_permalink")
+        or raw.get("logo_url")
+        or raw.get("logo")
+    )
 
     if not cd_id:
         raise ValueError("company payload missing id/name/domain")
@@ -89,6 +95,7 @@ def normalize_company(raw: dict[str, Any]) -> dict[str, Any]:
         "domain": domain,
         "industry": industry,
         "description": description,
+        "logo_url": logo_url,
         "employee_range": employee_range,
         "headcount": headcount.get("total") or raw.get("headcount") or raw.get("employee_count"),
         "funding_stage": round_type,
@@ -248,37 +255,43 @@ class SignalAgent:
 
         # Interactive scout: always emit at least one draftable profile signal
         # from live company facts when classic triggers did not fire.
+        # Never mention data vendors (CrustData) — drafts must sound company-native.
         if force_scout and not out:
-            bits: list[str] = []
+            label = company.get("name") or company.get("domain") or cid
+            domain = company.get("domain") or ""
+            desc = str(company.get("description") or "").strip()
+            if len(desc) > 140:
+                desc = desc[:137].rstrip() + "…"
+            angle_bits: list[str] = []
+            if desc:
+                angle_bits.append(desc)
             if company.get("industry"):
-                bits.append(f"industry {company['industry']}")
+                angle_bits.append(f"in {company['industry']}")
             if company.get("funding_stage") or company.get("last_funding_amount"):
-                bits.append(
-                    "funding "
-                    + " ".join(
+                angle_bits.append(
+                    " ".join(
                         str(x)
                         for x in (
                             company.get("funding_stage"),
                             company.get("last_funding_amount"),
-                            company.get("last_funding_date"),
+                            company.get("last_funding_date")
+                            and f"({company.get('last_funding_date')})",
                         )
                         if x
                     )
                 )
             if company.get("headcount") is not None:
-                bits.append(f"headcount {company['headcount']}")
+                angle_bits.append(f"{company['headcount']} employees")
             growth = company.get("headcount_growth_30d_pct")
             if growth is not None:
-                bits.append(f"30d growth {float(growth):.1f}%")
+                angle_bits.append(f"+{float(growth):.1f}% headcount / 30d")
             if company.get("employee_range"):
-                bits.append(f"size {company['employee_range']}")
+                angle_bits.append(f"size {company['employee_range']}")
             if company.get("country"):
-                bits.append(f"HQ {company['country']}")
-            if company.get("description"):
-                bits.append(str(company["description"])[:160])
-            fact_line = "; ".join(bits) if bits else "live company profile from CrustData"
-            label = company.get("name") or company.get("domain") or cid
-            domain = company.get("domain") or ""
+                angle_bits.append(f"HQ {company['country']}")
+            fact_line = "; ".join(angle_bits) if angle_bits else (
+                f"{label} is actively building GTM motion on {domain or 'their site'}"
+            )
             fp = f"profile:{domain}:{company.get('funding_stage')}:{company.get('headcount')}:{company.get('last_funding_date')}"
             sid = _signal_id(cid, "profile", fp)
             out.append(
@@ -286,7 +299,7 @@ class SignalAgent:
                     "id": sid,
                     "type": "profile",
                     "severity": 78,
-                    "summary": f"{label} ({domain}): {fact_line}".strip(),
+                    "summary": f"{label} snapshot: {fact_line}".strip(),
                     "payload": {
                         "company_id": cid,
                         "name": company.get("name"),

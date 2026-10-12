@@ -104,7 +104,9 @@ class GraphStore:
                 ON CREATE SET c.first_seen_at = $now
                 SET c.name = $name, c.domain = $domain, c.industry = $industry,
                     c.headcount = $headcount, c.funding_stage = $funding_stage,
-                    c.country = $country, c.last_snapshot_at = $now
+                    c.country = $country, c.last_snapshot_at = $now,
+                    c.updated_at = $now,
+                    c.support_risk = coalesce($support_risk, c.support_risk, false)
                 WITH c
                 MATCH (s:Segment {id: $seg})
                 MERGE (s)-[:WATCHES]->(c)
@@ -116,10 +118,42 @@ class GraphStore:
                 headcount=company.get("headcount"),
                 funding_stage=company.get("funding_stage"),
                 country=company.get("country"),
+                support_risk=bool(company.get("support_risk")),
                 now=_utc(),
                 seg=segment_id,
             )
         return cid
+
+    def company_support_risk(self, company_id: str) -> bool:
+        """Stub do-not-send flag (open ticket / risk) mirrored from Company.support_risk."""
+        with self._driver.session() as session:
+            row = session.run(
+                """
+                MATCH (c:Company {crustdata_id: $cid})
+                RETURN coalesce(c.support_risk, false) AS risk
+                """,
+                cid=str(company_id),
+            ).single()
+            return bool(row and row["risk"])
+
+    def company_has_recent_draft(self, company_id: str, *, days: int = 7) -> bool:
+        """True if this company already has a Draft created within ``days``."""
+        since_ts = datetime.now(timezone.utc).timestamp() - (max(1, days) * 86400)
+        since_iso = datetime.fromtimestamp(since_ts, tz=timezone.utc).isoformat()
+        with self._driver.session() as session:
+            row = session.run(
+                """
+                MATCH (c:Company {crustdata_id: $cid})<-[:TRIGGERED_BY]-(s:Signal)
+                      <-[:DRAFTED_FOR]-(d:Draft)
+                WHERE d.created_at IS NOT NULL
+                  AND toString(d.created_at) >= $since
+                RETURN count(d) AS n
+                LIMIT 1
+                """,
+                cid=str(company_id),
+                since=since_iso,
+            ).single()
+            return bool(row and int(row["n"] or 0) > 0)
 
     def merge_evidence(self, s3_key: str, source: str, payload: Any) -> str:
         ph = payload_hash(payload)
@@ -184,21 +218,60 @@ class GraphStore:
             )
         return True
 
-    def set_signal_state(self, signal_id: str, state: str, severity: int | None = None) -> None:
+    def set_signal_state(
+        self,
+        signal_id: str,
+        state: str,
+        severity: int | None = None,
+        *,
+        suppression_reason: str | None = None,
+    ) -> None:
         with self._driver.session() as session:
-            if severity is None:
+            if severity is None and suppression_reason is None:
                 session.run(
                     "MATCH (s:Signal {id: $id}) SET s.state = $state",
                     id=signal_id,
                     state=state,
                 )
-            else:
+            elif severity is None:
+                session.run(
+                    """
+                    MATCH (s:Signal {id: $id})
+                    SET s.state = $state, s.suppression_reason = $reason
+                    """,
+                    id=signal_id,
+                    state=state,
+                    reason=suppression_reason,
+                )
+            elif suppression_reason is None:
                 session.run(
                     "MATCH (s:Signal {id: $id}) SET s.state = $state, s.severity = $sev",
                     id=signal_id,
                     state=state,
                     sev=severity,
                 )
+            else:
+                session.run(
+                    """
+                    MATCH (s:Signal {id: $id})
+                    SET s.state = $state, s.severity = $sev, s.suppression_reason = $reason
+                    """,
+                    id=signal_id,
+                    state=state,
+                    sev=severity,
+                    reason=suppression_reason,
+                )
+
+    def evidence_hashes_for_draft(self, draft_id: str) -> list[str]:
+        with self._driver.session() as session:
+            result = session.run(
+                """
+                MATCH (d:Draft {id: $id})-[:CITES]->(e:Evidence)
+                RETURN e.payload_hash AS h
+                """,
+                id=draft_id,
+            )
+            return [r["h"] for r in result if r["h"]]
 
     def unfinished_signals(self) -> list[dict[str, Any]]:
         with self._driver.session() as session:
@@ -209,7 +282,8 @@ class GraphStore:
                 OPTIONAL MATCH (s)-[:TRIGGERED_BY]->(c:Company)
                 RETURN s.id AS id, s.type AS type, s.severity AS severity,
                        s.state AS state, s.summary AS summary, c.crustdata_id AS company_id,
-                       c.name AS company_name, c.domain AS domain
+                       c.name AS company_name, c.domain AS domain,
+                       coalesce(c.support_risk, false) AS support_risk
                 ORDER BY s.detected_at
                 """
             )

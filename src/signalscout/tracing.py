@@ -46,6 +46,54 @@ def neatlogs_session(workflow: str = "signal-scout") -> Iterator[Any]:
             pass
 
 
+def log_hitl_action(
+    *,
+    action: str,
+    draft_id: str | None = None,
+    signal_id: str | None = None,
+    company: str | None = None,
+    domain: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Record Approve/Edit/Reject as a neatlogs eval signal (Slack HITL analogue)."""
+    payload = {
+        "kind": "hitl_draft_action",
+        "action": action,
+        "draft_id": draft_id,
+        "signal_id": signal_id,
+        "company": company,
+        "domain": domain,
+        **(extra or {}),
+    }
+    nl = _active_nl.get()
+    if nl is None:
+        api_key = get_secret("NEATLOGS_API_KEY")
+        if not api_key:
+            return {"logged": False, "reason": "no_neatlogs_key", **payload}
+        try:
+            with neatlogs_session(workflow="signal-scout-hitl") as session_nl:
+                if session_nl is None:
+                    return {"logged": False, "reason": "init_failed", **payload}
+                return _emit_hitl(session_nl, payload)
+        except BaseException:
+            return {"logged": False, "reason": "emit_failed", **payload}
+    return _emit_hitl(nl, payload)
+
+
+def _emit_hitl(nl: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+
+        @nl.span(kind="AGENT", name="hitl_draft_action")
+        def _traced() -> dict[str, Any]:
+            # Attach payload on the span via return metadata when supported
+            return payload
+
+        _traced()
+        return {"logged": True, **payload}
+    except BaseException:
+        return {"logged": False, "reason": "span_failed", **payload}
+
+
 def llm_complete(
     *,
     system: str,
@@ -59,9 +107,25 @@ def llm_complete(
     meta = metadata or {}
 
     if not openrouter_key:
+        company = str(meta.get("company") or "there")
+        summary = str(meta.get("summary") or user[:160]).strip()
+        # Strip vendor meta so stubs stay inbox-safe / company-native
+        for noise in (
+            "live company profile from CrustData",
+            "from CrustData",
+            "CrustData",
+        ):
+            summary = summary.replace(noise, "").strip(" :;|-")
+        hook = summary[:140] if summary else f"what {company} is building"
+        if meta.get("agent") == "research":
+            return (
+                f"{company}'s focus on {hook} is a timely hook for a short, "
+                f"relevant outbound note — lead with their work, not your tool."
+            )
         return (
-            f"[stub draft] Reaching out about {meta.get('company', 'your company')}: "
-            f"{meta.get('summary', user[:120])}. Happy to share how peers handled this."
+            f"Subject: Quick note on {company}\n\n"
+            f"Hi — noticed {hook}. "
+            f"Curious if a short chat next week would be useful; happy to share how peers approached something similar."
         )
 
     from openrouter import OpenRouter

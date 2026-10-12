@@ -70,13 +70,37 @@ class MemoryGraphStore:
             )},
             "crustdata_id": cid,
             "last_snapshot_at": _utc(),
+            "updated_at": _utc(),
             "first_seen_at": prev.get("first_seen_at") or _utc(),
             # keep funding date for diffs in tests
             "last_funding_date": company.get("last_funding_date") or prev.get("last_funding_date"),
+            "support_risk": bool(
+                company["support_risk"]
+                if "support_risk" in company
+                else prev.get("support_risk", False)
+            ),
         }
         self.companies[cid] = row
         self.watches.add((segment_id, cid))
         return cid
+
+    def company_support_risk(self, company_id: str) -> bool:
+        c = self.companies.get(str(company_id)) or {}
+        return bool(c.get("support_risk"))
+
+    def company_has_recent_draft(self, company_id: str, *, days: int = 7) -> bool:
+        since_ts = datetime.now(timezone.utc).timestamp() - (max(1, days) * 86400)
+        since_iso = datetime.fromtimestamp(since_ts, tz=timezone.utc).isoformat()
+        cid = str(company_id)
+        for d in self.drafts.values():
+            created = str(d.get("created_at") or "")
+            if created < since_iso:
+                continue
+            sid = d.get("signal_id")
+            sig = self.signals.get(sid or "")
+            if sig and str(sig.get("company_id")) == cid:
+                return True
+        return False
 
     def merge_evidence(self, s3_key: str, source: str, payload: Any) -> str:
         ph = payload_hash(payload)
@@ -106,11 +130,20 @@ class MemoryGraphStore:
         self.run_signals.setdefault(kwargs["run_id"], []).append(sid)
         return True
 
-    def set_signal_state(self, signal_id: str, state: str, severity: int | None = None) -> None:
+    def set_signal_state(
+        self,
+        signal_id: str,
+        state: str,
+        severity: int | None = None,
+        *,
+        suppression_reason: str | None = None,
+    ) -> None:
         s = self.signals[signal_id]
         s["state"] = state
         if severity is not None:
             s["severity"] = severity
+        if suppression_reason is not None:
+            s["suppression_reason"] = suppression_reason
 
     def unfinished_signals(self) -> list[dict[str, Any]]:
         out = []
@@ -123,9 +156,13 @@ class MemoryGraphStore:
                     **s,
                     "company_name": c.get("name"),
                     "domain": c.get("domain"),
+                    "support_risk": bool(c.get("support_risk")),
                 }
             )
         return out
+
+    def evidence_hashes_for_draft(self, draft_id: str) -> list[str]:
+        return list(self.draft_cites.get(draft_id, []))
 
     def create_draft(self, **kwargs: Any) -> None:
         did = kwargs["draft_id"]

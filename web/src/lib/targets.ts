@@ -40,6 +40,18 @@ export type TargetsPayload = {
   error?: string;
 };
 
+function emptyTargets(error: string): TargetsPayload {
+  return {
+    status: "unavailable",
+    error,
+    total: 0,
+    categories: [],
+    companies: [],
+    window_days: 7,
+    refresh_interval_hours: 1,
+  };
+}
+
 function headers(): HeadersInit {
   const h: Record<string, string> = { Accept: "application/json" };
   if (TOKEN) h["X-Scout-Token"] = TOKEN;
@@ -48,38 +60,34 @@ function headers(): HeadersInit {
 
 export async function fetchTargets(): Promise<TargetsPayload> {
   if (!AGENT) {
-    return {
-      status: "failed",
-      error: "SCOUT_AGENT_URL is not configured",
-      total: 0,
-      categories: [],
-      companies: [],
-    };
+    return emptyTargets("SCOUT_AGENT_URL is not configured");
   }
   try {
     const res = await fetch(`${AGENT}/targets?days=7`, {
       headers: headers(),
       cache: "no-store",
-      signal: AbortSignal.timeout(60_000),
+      // Fail fast so Scout UI does not hang ~10–60s when EC2 is down
+      signal: AbortSignal.timeout(8_000),
     });
     const data = (await res.json()) as TargetsPayload;
     if (!res.ok) {
-      return {
-        status: "failed",
-        error: data.error || `agent HTTP ${res.status}`,
-        total: 0,
-        categories: [],
-        companies: [],
-      };
+      return emptyTargets(data.error || `agent HTTP ${res.status}`);
     }
-    return data;
-  } catch {
     return {
-      status: "failed",
-      error: "Cannot reach scout agent for targets",
-      total: 0,
-      categories: [],
-      companies: [],
+      ...data,
+      status: data.status || "complete",
+      total: data.total ?? data.companies?.length ?? 0,
+      categories: data.categories || [],
+      companies: data.companies || [],
     };
+  } catch (e) {
+    const timedOut =
+      e instanceof Error &&
+      (e.name === "TimeoutError" || e.name === "AbortError");
+    return emptyTargets(
+      timedOut
+        ? "Scout agent timed out — check EC2 :8787 is up and SG allows your IP"
+        : "Cannot reach scout agent for targets — start signal-scout-api on EC2",
+    );
   }
 }

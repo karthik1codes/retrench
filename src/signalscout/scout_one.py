@@ -219,12 +219,15 @@ def scout_company(
     result["items"] = formatted_items
     created = result.get("created_signals") or []
     drafts = result.get("drafts") or []
+    suppressed = result.get("suppressed") or []
     result["context"] = {
         "company": company_ctx,
         "scouted": scouted,
         "month": month,
         "signals_created": len(created),
         "drafts_created": len(drafts),
+        "suppressed_count": len(suppressed),
+        "suppressed": suppressed,
         "signals_this_month": len(formatted_items),
         "signals_in_graph": len(formatted_items),
         "note": _context_note(
@@ -240,6 +243,8 @@ def scout_company(
                 "detected_at": i.get("detected_at"),
                 "has_draft": bool(i.get("draft_body")),
                 "confidence": i.get("confidence"),
+                "evidence_hashes": i.get("evidence_hashes") or [],
+                "suppression_reason": i.get("suppression_reason") or None,
             }
             for i in formatted_items
         ],
@@ -297,6 +302,7 @@ def _company_context(raw: dict[str, Any]) -> dict[str, Any]:
             "domain": raw.get("domain"),
             "industry": None,
             "description": None,
+            "logo_url": None,
             "employee_range": None,
             "headcount": None,
             "funding_stage": None,
@@ -313,6 +319,7 @@ def _company_context(raw: dict[str, Any]) -> dict[str, Any]:
         "domain": norm.get("domain"),
         "industry": norm.get("industry") or None,
         "description": norm.get("description"),
+        "logo_url": norm.get("logo_url"),
         "employee_range": norm.get("employee_range"),
         "headcount": norm.get("headcount"),
         "funding_stage": norm.get("funding_stage"),

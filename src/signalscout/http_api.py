@@ -75,6 +75,7 @@ def drafts_for_company(
                     OR ($since_iso IS NOT NULL AND toString(coalesce(s.detected_at, '')) >= $since_iso)
                   )
                 OPTIONAL MATCH (d:Draft)-[:DRAFTED_FOR]->(s)
+                OPTIONAL MATCH (d)-[:CITES]->(e:Evidence)
                 RETURN c.name AS company, c.domain AS domain,
                        coalesce(c.industry, '') AS industry,
                        s.id AS signal_id,
@@ -83,8 +84,10 @@ def drafts_for_company(
                        s.implication AS implication,
                        s.severity AS severity, s.state AS state,
                        s.detected_at AS detected_at,
+                       coalesce(s.suppression_reason, '') AS suppression_reason,
                        d.id AS draft_id, d.body AS draft_body,
-                       d.confidence AS confidence
+                       d.confidence AS confidence,
+                       collect(DISTINCT e.payload_hash) AS evidence_hashes
                 ORDER BY s.detected_at DESC
                 LIMIT $limit
                 """,
@@ -93,7 +96,12 @@ def drafts_for_company(
                 since_iso=since_iso,
                 limit=limit,
             )
-            rows = [dict(r) for r in result]
+            rows = []
+            for r in result:
+                row = dict(r)
+                hashes = [h for h in (row.get("evidence_hashes") or []) if h]
+                row["evidence_hashes"] = hashes
+                rows.append(row)
             # Prefer exact domain matches first
             exact = [
                 r
@@ -164,7 +172,7 @@ def targets_payload(*, days: int = 7, limit: int = 200) -> dict[str, Any]:
                        signal_count,
                        last_draft_at,
                        last_signal_at,
-                       c.updated_at AS updated_at
+                       coalesce(c.updated_at, c.last_snapshot_at) AS updated_at
                 ORDER BY last_draft_at DESC, name ASC
                 LIMIT $limit
                 """,
@@ -364,6 +372,9 @@ def overview_payload() -> dict[str, Any]:
 
 
 def watchlist_payload(*, days: int = 14) -> dict[str, Any]:
+    days = max(1, min(int(days or 14), 90))
+    since_ts = datetime.now(timezone.utc).timestamp() - (days * 86400)
+    since_iso = datetime.fromtimestamp(since_ts, tz=timezone.utc).isoformat()
     graph = connect_graph()
     try:
         with graph._driver.session() as session:
@@ -371,6 +382,10 @@ def watchlist_payload(*, days: int = 14) -> dict[str, Any]:
                 """
                 MATCH (s:Signal)-[:TRIGGERED_BY]->(c:Company)
                 WHERE s.state <> 'archived'
+                  AND (
+                    s.detected_at IS NULL
+                    OR toString(s.detected_at) >= $since
+                  )
                 OPTIONAL MATCH (d:Draft)-[:DRAFTED_FOR]->(s)
                 RETURN s.id AS id,
                        coalesce(s.severity, 0) AS severity,
@@ -382,7 +397,8 @@ def watchlist_payload(*, days: int = 14) -> dict[str, Any]:
                        d.confidence AS confidence
                 ORDER BY s.severity DESC, s.detected_at DESC
                 LIMIT 50
-                """
+                """,
+                since=since_iso,
             )
             signals = []
             for r in result:
@@ -470,7 +486,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/watchlist":
             try:
-                _json(self, 200, watchlist_payload())
+                qs = parse_qs(parsed.query)
+                days_raw = (qs.get("days") or ["14"])[0]
+                try:
+                    days = int(days_raw)
+                except ValueError:
+                    days = 14
+                _json(self, 200, watchlist_payload(days=days))
             except Exception as e:  # noqa: BLE001
                 _json(self, 500, {"error": str(e), "status": "failed"})
             return
@@ -525,6 +547,45 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 code = 200 if result.get("status") in {"complete", "empty"} else 422
                 _json(self, code, result)
+            except Exception as e:  # noqa: BLE001
+                _json(self, 500, {"error": str(e)})
+            return
+
+        if parsed.path == "/draft-action":
+            action = str(body.get("action") or "").strip().lower()
+            if action not in {"approve", "edit", "reject"}:
+                _json(
+                    self,
+                    400,
+                    {"error": "action must be approve|edit|reject"},
+                )
+                return
+            try:
+                from signalscout.tracing import log_hitl_action
+
+                logged = log_hitl_action(
+                    action=action,
+                    draft_id=(body.get("draft_id") or None),
+                    signal_id=(body.get("signal_id") or None),
+                    company=(body.get("company") or None),
+                    domain=(body.get("domain") or None),
+                    extra={
+                        "subject": body.get("subject"),
+                        "word_count": len(str(body.get("body") or "").split())
+                        if body.get("body")
+                        else None,
+                    },
+                )
+                _json(
+                    self,
+                    200,
+                    {
+                        "status": "ok",
+                        "action": action,
+                        "logged": logged.get("logged"),
+                        "detail": logged,
+                    },
+                )
             except Exception as e:  # noqa: BLE001
                 _json(self, 500, {"error": str(e)})
             return

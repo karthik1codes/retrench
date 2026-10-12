@@ -47,7 +47,12 @@ def run_cycle(
     run_id = graph.start_run()
     graph.upsert_segment(segment_id, cfg.dsl_text)
     status = "complete"
-    result: dict[str, Any] = {"run_id": run_id, "created_signals": [], "drafts": []}
+    result: dict[str, Any] = {
+        "run_id": run_id,
+        "created_signals": [],
+        "drafts": [],
+        "suppressed": [],
+    }
 
     try:
         with neatlogs_session():
@@ -56,8 +61,10 @@ def run_cycle(
                 unfinished = graph.unfinished_signals()
                 result["dry_run"] = True
                 result["replayed"] = len(unfinished)
+                draft_agent = DraftAgent(graph, cfg)
                 ResearchAgent(graph, cfg).run()
-                result["drafts"] = DraftAgent(graph, cfg).run()
+                result["drafts"] = draft_agent.run()
+                result["suppressed"] = list(draft_agent.suppressions)
             else:
                 from signalscout.agents.signal_agent import normalize_company
 
@@ -73,7 +80,9 @@ def run_cycle(
                 else:
                     # Scheduled cycle: resume unfinished first
                     ResearchAgent(graph, cfg).run()
-                    DraftAgent(graph, cfg).run()
+                    warm = DraftAgent(graph, cfg)
+                    warm.run()
+                    result["suppressed"] = list(warm.suppressions)
 
                 signal_agent = SignalAgent(
                     graph,
@@ -85,7 +94,15 @@ def run_cycle(
                 created = signal_agent.run(run_id, segment_id)
                 result["created_signals"] = created
                 ResearchAgent(graph, cfg).run(company_ids=scoped_ids)
-                result["drafts"] = DraftAgent(graph, cfg).run(company_ids=scoped_ids)
+                draft_agent = DraftAgent(graph, cfg)
+                result["drafts"] = draft_agent.run(company_ids=scoped_ids)
+                # Interactive scout skips suppress; scheduled path merges both passes
+                if companies_override is None:
+                    result["suppressed"] = list(result.get("suppressed") or []) + list(
+                        draft_agent.suppressions
+                    )
+                else:
+                    result["suppressed"] = list(draft_agent.suppressions)
 
             if write_digest:
                 path = WatchlistAgent(graph).run(credits_spent=ledger.total)

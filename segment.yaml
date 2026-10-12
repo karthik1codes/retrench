@@ -32,6 +32,7 @@ crustdata_fields:
   - basic_info.primary_domain
   - basic_info.description
   - basic_info.employee_count_range
+  - basic_info.logo_permalink
   - funding
   - headcount.total
   - headcount.growth_percent
