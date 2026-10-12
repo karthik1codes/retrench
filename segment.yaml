@@ -37,7 +37,6 @@ crustdata_fields:
   - headcount.growth_percent
   - locations.country
   - taxonomy.professional_network_industry
-  - taxonomy.linkedin_industry
 
 triggers:
   funding:
