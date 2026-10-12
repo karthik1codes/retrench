@@ -29,7 +29,7 @@ export function LandingCta() {
                 <ArrowRightIcon data-icon="inline-end" />
               </ButtonLink>
               <ButtonLink href="/login" variant="outline" size="lg" className="px-6">
-                Read the docs
+                Sign in
               </ButtonLink>
             </div>
           </div>

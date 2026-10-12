@@ -6,11 +6,9 @@ import { ButtonLink } from "@/components/ui/button-link";
 import { SignalScoutLogo } from "@/components/SignalScoutLogo";
 
 const LINKS = [
-  { href: "#features", label: "Features" },
-  { href: "#network", label: "Signals" },
-  { href: "#developers", label: "Developers" },
-  { href: "#catalog", label: "Triggers" },
-  { href: "#pricing", label: "Pricing" },
+  { href: "#features", label: "Pipeline" },
+  { href: "#workflow", label: "Workflow" },
+  { href: "#stack", label: "Stack" },
 ] as const;
 
 export function LandingNav() {
@@ -48,8 +46,12 @@ export function LandingNav() {
               <ButtonLink href="/login" variant="ghost" size="sm">
                 Log in
               </ButtonLink>
-              <ButtonLink href="/login" size="sm" className="hidden sm:inline-flex">
-                Talk to sales
+              <ButtonLink
+                href="/login"
+                size="sm"
+                className="hidden sm:inline-flex"
+              >
+                Get started
               </ButtonLink>
             </>
           )}

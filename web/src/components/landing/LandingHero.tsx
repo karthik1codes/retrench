@@ -104,13 +104,12 @@ export function LandingHero() {
               <ArrowRightIcon data-icon="inline-end" />
             </ButtonLink>
             <ButtonLink href="/login" variant="outline" size="lg" className="px-6">
-              Talk to sales
+              Sign in
             </ButtonLink>
           </div>
 
           <p className="mt-6 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">4.9</span> average
-            from early GTM teams
+            Real triggers only · evidence-cited drafts · you always send
           </p>
         </div>
 

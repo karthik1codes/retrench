@@ -46,7 +46,7 @@ export function LandingWorkflow() {
   }
 
   return (
-    <section className="border-t border-white/5 py-20 sm:py-28">
+    <section id="workflow" className="border-t border-white/5 py-20 sm:py-28">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <div className="mx-auto max-w-2xl text-center">
           <p className="text-sm text-muted-foreground">Workflow</p>
