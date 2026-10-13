@@ -11,8 +11,8 @@
 
 | Time | Beat | On screen |
 | --- | --- | --- |
-| 0:00–0:12 | Crisp intro | Landing / logo |
-| 0:12–0:55 | Problem (tools gap) | Pain slide → tool voids |
+| 0:00–0:20 | You + thanks + product | Face / name → landing + stack |
+| 0:20–0:55 | Problem (tools gap) | Pain slide → tool voids |
 | 0:55–1:25 | Solution + agents | `segment.yaml` → architecture → Scout run |
 | 1:25–1:55 | Focus areas | neatHack 8 cards + map each to Signal Scout |
 | 1:55–2:25 | CrustData + Neo4j | Scout profile / Neo4j CITES |
@@ -24,15 +24,23 @@
 
 ## Full spoken script
 
-### 0:00–0:12 — Crisp intro (open cold)
+### 0:00–0:20 — You + thanks + crisp product line
 
-**[Screen: Signal Scout landing — brand first, no clutter]**
+**[Screen: you on camera (or name slate) → cut to landing with stack strip: CrustData · neatlogs · Entire · cfo.ai]**
 
-> **Signal Scout.**  
-> Real company triggers. Evidence-backed drafts. You send.  
-> An autonomous GTM agent built for neatHack — CrustData for signals, Neo4j for memory, neatlogs for traces, Entire for iteration, cfo.ai for unit economics.
+> Hi, I’m **[Your name]** — builder of **Signal Scout** for neatHack.
+>
+> Huge thanks to **neatlogs**, **cfo.ai**, **Entire**, and **CrustData** for the stack that made this agent real — not just a demo wrapper.
+>
+> **Signal Scout:** real company triggers, evidence-backed drafts, you send.
 
-*(Pause half a beat. Cut to problem.)*
+*(Half-beat. Cut to problem.)*
+
+**Shorter alt (if tight on time, ~12s):**
+
+> I’m **[Your name]**. This is **Signal Scout** for neatHack.  
+> Thanks to **CrustData**, **neatlogs**, **Entire**, and **cfo.ai**.  
+> Real triggers. Evidence drafts. You send.
 
 ---
 
