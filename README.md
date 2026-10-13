@@ -1,9 +1,15 @@
-# Signal Scout
+<p align="center">
+  <img src="web/public/brand/signal-scout-logo.png" alt="Signal Scout" width="120" height="120" />
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](./pyproject.toml)
-[![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-informational.svg)](./pyproject.toml)
-[![neatHack](https://img.shields.io/badge/neatHack-GTM%20agent-red.svg)](https://neatlogs.com/hackathon)
+<h1 align="center">Signal Scout</h1>
+
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="./pyproject.toml"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+" /></a>
+  <a href="./pyproject.toml"><img src="https://img.shields.io/badge/version-0.1.0-informational.svg" alt="Version 0.1.0" /></a>
+  <a href="https://neatlogs.com/hackathon"><img src="https://img.shields.io/badge/neatHack-GTM%20agent-red.svg" alt="neatHack" /></a>
+</p>
 
 ## Elevator pitch
 
